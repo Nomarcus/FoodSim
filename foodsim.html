@@ -1342,6 +1342,15 @@ const fruits=[], obstacles=[];
 let activeTeamStates=[];
 const goalStates = {};
 const bestFitnessByTeam = {};
+const teamEvoMeta = {};
+function getTeamEvoMeta(teamId){
+  let meta = teamEvoMeta[teamId];
+  if(!meta){
+    meta = { lastBest:-Infinity, stagnantGens:0, hofNet:null, hofFitness:-Infinity };
+    teamEvoMeta[teamId] = meta;
+  }
+  return meta;
+}
 const teamScoreBook = new Map();
 const teamScoreDisplays = new Map();
 const teamBadgeDisplays = new Map();
@@ -1370,6 +1379,7 @@ function updateFruitPlacementUI(mode){
 function regenerateFruitField(){
   const target = Math.max(0, Math.floor(params.maxFruits || 0));
   fruits.length = 0;
+  fruitsVersion++;
   for(let i=0;i<target;i++){
     spawnFruit();
   }
@@ -1452,6 +1462,16 @@ const PHEROMONE_FRESH_DIFFUSE_CENTER = 0.56;
 const PHEROMONE_FRESH_DIFFUSE_NEIGHBOR = 0.05;
 const RAYCAST_MAX_DISTANCE = 160;
 const RAYCAST_STEP = 10;
+const FOOD_FIELD_RECOMPUTE_STEPS = 45;
+const PATH_GUIDE_LOS_MAX = 340;
+const SEEK_PATH_PROGRESS_REWARD = 0.55;
+const STUCK_ESCAPE_JITTER = 0.45;
+const STAGNATION_GENERATION_LIMIT = 6;
+const STAGNATION_MUT_MULTIPLIER = 1.6;
+const STAGNATION_MUT_CAP = 0.6;
+const STAGNATION_FRESH_BONUS = 0.15;
+const STAGNATION_IMPROVE_EPS = 1.0;
+const HOF_FITNESS_DECAY = 0.995;
 
 function getTeamScoreData(teamId){
   if(!teamId) return { score:0, pickups:0, deliveries:0, blocks:0, fumbles:0 };
@@ -1513,6 +1533,11 @@ function registerTeamFumble(teamState, penalty=0){
 let grid, GW, GH, CS = 22; // cell size
 let pathCostFields = {};
 let pathCostDirty = true;
+let foodCostField = null;
+let foodFieldDirty = true;
+let foodFieldLastStep = -1;
+let fruitsVersion = 0;
+let foodFieldFruitsVersion = -1;
 function makeGrid(){
   GW=Math.floor(W/CS);
   GH=Math.floor(H/CS);
@@ -1697,6 +1722,7 @@ function evaporate(){
 
 function markPathCostDirty(){
   pathCostDirty = true;
+  foodFieldDirty = true;
 }
 
 function pointInsideObstacleWithPadding(x, y, padding=0){
@@ -1845,6 +1871,115 @@ function getPathCostAt(teamId, x, y){
   const cy = clampi((y/CS)|0, 0, GH-1);
   const cost = field[gi(cx, cy)];
   return Number.isFinite(cost) ? cost : Infinity;
+}
+
+function recomputeFoodCostField(){
+  if(!Number.isFinite(GW) || !Number.isFinite(GH) || GW<=0 || GH<=0){
+    foodCostField = null;
+    return;
+  }
+  if(!fruits.length){
+    foodCostField = null;
+    return;
+  }
+  const neighborOffsets = [
+    { dx:1, dy:0 },
+    { dx:-1, dy:0 },
+    { dx:0, dy:1 },
+    { dx:0, dy:-1 }
+  ];
+  const costs = new Float32Array(GW*GH);
+  costs.fill(Infinity);
+  const queueX = new Int16Array(GW*GH);
+  const queueY = new Int16Array(GW*GH);
+  let tail=0;
+  const seed = (cx, cy)=>{
+    const idx = gi(cx, cy);
+    if(costs[idx] === 0) return;
+    costs[idx] = 0;
+    queueX[tail] = cx;
+    queueY[tail] = cy;
+    tail++;
+  };
+  for(const fruit of fruits){
+    const cx = clampi((fruit.x/CS)|0, 0, GW-1);
+    const cy = clampi((fruit.y/CS)|0, 0, GH-1);
+    if(isCellNavigable(cx, cy)){
+      seed(cx, cy);
+      continue;
+    }
+    for(const offset of neighborOffsets){
+      const nx = cx + offset.dx;
+      const ny = cy + offset.dy;
+      if(isCellNavigable(nx, ny)) seed(nx, ny);
+    }
+  }
+  if(tail === 0){
+    foodCostField = null;
+    return;
+  }
+  let head=0;
+  while(head < tail){
+    const cx = queueX[head];
+    const cy = queueY[head];
+    head++;
+    const baseCost = costs[gi(cx, cy)];
+    for(const offset of neighborOffsets){
+      const nx = cx + offset.dx;
+      const ny = cy + offset.dy;
+      if(!isCellNavigable(nx, ny)) continue;
+      const fromX = (cx + 0.5) * CS;
+      const fromY = (cy + 0.5) * CS;
+      const toX = (nx + 0.5) * CS;
+      const toY = (ny + 0.5) * CS;
+      if(segmentIntersectsObstacle(fromX, fromY, toX, toY, PATH_COST_OBSTACLE_PADDING)) continue;
+      const nIdx = gi(nx, ny);
+      const newCost = baseCost + 1;
+      if(newCost < costs[nIdx]){
+        costs[nIdx] = newCost;
+        queueX[tail] = nx;
+        queueY[tail] = ny;
+        tail++;
+      }
+    }
+  }
+  foodCostField = costs;
+}
+
+function updateFoodFieldIfNeeded(){
+  const fruitsChanged = fruitsVersion !== foodFieldFruitsVersion;
+  const stale = (simSteps - foodFieldLastStep) >= FOOD_FIELD_RECOMPUTE_STEPS;
+  if(!foodFieldDirty && !(fruitsChanged && stale)) return;
+  foodFieldDirty = false;
+  foodFieldFruitsVersion = fruitsVersion;
+  foodFieldLastStep = simSteps;
+  recomputeFoodCostField();
+}
+
+function samplePathDescentDirection(field, x, y){
+  if(!field || !Number.isFinite(GW) || !Number.isFinite(GH) || GW<=0 || GH<=0) return { x:0, y:0, ok:false };
+  const cx = clampi((x/CS)|0, 0, GW-1);
+  const cy = clampi((y/CS)|0, 0, GH-1);
+  let bestCost = Infinity;
+  let bestCx = cx, bestCy = cy;
+  for(let dy=-1; dy<=1; dy++){
+    for(let dx=-1; dx<=1; dx++){
+      const nx = clampi(cx+dx, 0, GW-1);
+      const ny = clampi(cy+dy, 0, GH-1);
+      const cost = field[gi(nx, ny)];
+      if(Number.isFinite(cost) && cost < bestCost){
+        bestCost = cost;
+        bestCx = nx;
+        bestCy = ny;
+      }
+    }
+  }
+  if(!Number.isFinite(bestCost) || (bestCx === cx && bestCy === cy)) return { x:0, y:0, ok:false };
+  const dx = (bestCx + 0.5) * CS - x;
+  const dy = (bestCy + 0.5) * CS - y;
+  const mag = Math.hypot(dx, dy);
+  if(mag <= 1e-6) return { x:0, y:0, ok:false };
+  return { x:dx/mag, y:dy/mag, ok:true };
 }
 
 // Goals – draggable, one per potential team
@@ -2868,6 +3003,7 @@ function spawnFruit(x=null,y=null){
     y=pos.y;
   }
   fruits.push({x,y,r:6,color:COLORS.fruit});
+  fruitsVersion++;
 }
 function goalTooClose(x,y,r,padding=40){
   for(const goal of getAllGoalStates()){
@@ -4039,8 +4175,22 @@ function evolveTeam(teamState){
   teamState.bestFitnessCurrent = best;
   teamState.peakFitness = Math.max(teamState.peakFitness||0, best);
   bestFitnessByTeam[teamState.config.id] = teamState.peakFitness;
+  const meta = getTeamEvoMeta(teamState.config.id);
+  meta.hofFitness *= HOF_FITNESS_DECAY;
+  if(best > meta.hofFitness){
+    meta.hofFitness = best;
+    meta.hofNet = cloneNet(pop[0].net);
+  }
+  if(best > meta.lastBest + STAGNATION_IMPROVE_EPS){
+    meta.stagnantGens = 0;
+    meta.lastBest = best;
+  } else {
+    meta.stagnantGens++;
+  }
+  const stagnant = meta.stagnantGens >= STAGNATION_GENERATION_LIMIT;
+  const mutRate = Math.min(STAGNATION_MUT_CAP, params.learn.mut * (stagnant ? STAGNATION_MUT_MULTIPLIER : 1));
   const tournamentFactor = Math.max(1, params.learn.tournamentFactor || 1);
-  const freshRatio = clamp(params.learn.fresh || 0, 0, 1);
+  const freshRatio = clamp((params.learn.fresh || 0) + (stagnant ? STAGNATION_FRESH_BONUS : 0), 0, 0.5);
   const newPop=[];
   for(let i=0;i<eliteN;i++) newPop.push({ net:cloneNet(elites[i]), fitness:0 });
   function pick(){
@@ -4052,12 +4202,15 @@ function evolveTeam(teamState){
   while(newPop.length<pop.length){
     const pa=pick(), pb=pick();
     let child=crossover(pa,pb);
-    mutateNet(child, params.learn.mut);
+    mutateNet(child, mutRate);
     newPop.push({ net:child, fitness:0 });
   }
   const freshCount = Math.min(pop.length - eliteN, Math.max(0, Math.round(pop.length * freshRatio)));
   for(let i=0;i<freshCount;i++){
     newPop[newPop.length-1-i] = { net:makeNet(), fitness:0 };
+  }
+  if(meta.hofNet && newPop.length > eliteN){
+    newPop[eliteN] = { net:cloneNet(meta.hofNet), fitness:0 };
   }
   for(let i=0;i<pop.length;i++){
     pop[i].net=newPop[i].net;
@@ -4176,6 +4329,7 @@ class Collector extends Agent{
     this.role='collector';
     this.lastPathCost = Infinity;
     this.pathProgressTicks = 0;
+    this.pathPhase = 'seek';
     this.visitedCells = new Set();
     this.cellVisitTimestamps = new Map();
     this.stuckPenaltyCooldown = 0;
@@ -4223,7 +4377,6 @@ class Collector extends Agent{
     if(this.dead) return;
     const cfg=this.teamState.config;
     const teamId=cfg.id;
-    const wasCarrying = this.carry;
     if(this.energyMax>0){
       this.adjustEnergy(-this.energyDecay);
       if(params.dieOnEnergyLoss && this.energy <= 0){
@@ -4238,6 +4391,17 @@ class Collector extends Agent{
     const myGoal=this.teamState.goal;
     const tgt = this.carry? myGoal : nearest(fruits, this.x, this.y);
     let tx=0,ty=0, dn=1;
+    if(tgt){ tx=tgt.x-this.x; ty=tgt.y-this.y; dn=Math.hypot(tx,ty)||1; tx/=dn; ty/=dn; }
+    let guideX = tx, guideY = ty;
+    let hasLOS = false;
+    if(tgt){
+      hasLOS = dn < PATH_GUIDE_LOS_MAX && hasLineOfSight(this.x, this.y, tgt.x, tgt.y, LINE_OF_SIGHT_PADDING);
+      if(!hasLOS){
+        const guideField = this.carry ? pathCostFields?.[teamId] : foodCostField;
+        const pathDir = guideField ? samplePathDescentDirection(guideField, this.x, this.y) : null;
+        if(pathDir?.ok){ guideX = pathDir.x; guideY = pathDir.y; }
+      }
+    }
     if(this.carry){
       this.currentFruitTarget = null;
       this.bestFruitDistance = Infinity;
@@ -4261,7 +4425,7 @@ class Collector extends Agent{
             const bonusFactor = clamp((bonusBase / FRUIT_APPROACH_BASELINE_SCALE), 0, FRUIT_APPROACH_MAX_MULTIPLIER - 1);
             const multiplier = clamp(1 + bonusFactor, 1, FRUIT_APPROACH_MAX_MULTIPLIER);
             const reward = improvement * FRUIT_APPROACH_REWARD * multiplier;
-            if(Number.isFinite(reward) && reward > 0){
+            if(hasLOS && Number.isFinite(reward) && reward > 0){
               this.fitness += reward;
             }
             this.bestFruitDistance = distToFruit;
@@ -4275,7 +4439,6 @@ class Collector extends Agent{
       this.bestFruitDistance = Infinity;
       this.fruitApproachBaseline = 0;
     }
-    if(tgt){ tx=tgt.x-this.x; ty=tgt.y-this.y; dn=Math.hypot(tx,ty)||1; tx/=dn; ty/=dn; }
     let hx = this.heading?.x ?? 1;
     let hy = this.heading?.y ?? 0;
     const currentSpeed = Math.hypot(this.vx, this.vy);
@@ -4318,7 +4481,7 @@ class Collector extends Agent{
     const leftClear = raycastClearance(this.x, this.y, leftDirX, leftDirY);
     const rightClear = raycastClearance(this.x, this.y, rightDirX, rightDirY);
     this.updateSensorVectors({
-      target:{ x:tx, y:ty, mode:this.carry ? 'goal' : 'fruit' },
+      target:{ x:guideX, y:guideY, mode: hasLOS ? (this.carry ? 'goal' : 'fruit') : 'path' },
       gradient:{ x:activeGrad.gx, y:activeGrad.gy, mode:this.carry ? 'home' : 'food' },
       gradientHome:{ x:homeGrad.gx, y:homeGrad.gy, label:'Home trail' },
       gradientFood:{ x:foodGrad.gx, y:foodGrad.gy, label:'Food trail' },
@@ -4335,7 +4498,7 @@ class Collector extends Agent{
     const stuckRatio = clamp(this.stuckT / Math.max(PATH_STUCK_THRESHOLD, 1), 0, 1);
     const carryFlag = this.carry ? 1 : -1;
     const input = [
-      tx,ty,
+      guideX,guideY,
       activeGrad.gx, activeGrad.gy,
       homeStrength,
       foodStrength,
@@ -4376,12 +4539,12 @@ class Collector extends Agent{
     this.previousDrive.x = clamp(driveX, -1, 1);
     this.previousDrive.y = clamp(driveY, -1, 1);
     const smartFactor = getEffectiveSmartValue(cfg);
-    this.vx += driveX*(0.45 + 0.15*smartFactor) + (tx*0.15*cfg.strat);
-    this.vy += driveY*(0.45 + 0.15*smartFactor) + (ty*0.15*cfg.strat);
+    this.vx += driveX*(0.45 + 0.15*smartFactor) + (guideX*0.15*cfg.strat);
+    this.vy += driveY*(0.45 + 0.15*smartFactor) + (guideY*0.15*cfg.strat);
     const pickupRadius = Math.max(AGENT_BASE_PICKUP_RADIUS * params.agentScale, 6);
     if(!this.carry && tgt && Math.hypot(tgt.x-this.x,tgt.y-this.y)<pickupRadius){
       const i=fruits.indexOf(tgt);
-      if(i>-1) fruits.splice(i,1);
+      if(i>-1){ fruits.splice(i,1); fruitsVersion++; }
       this.carry=true;
       this.lastProgressStep = simSteps;
       if(this.cellVisitTimestamps){
@@ -4400,8 +4563,9 @@ class Collector extends Agent{
       this.stuckPenaltyCooldown--;
     }
     if(this.stuckT>35){
-      this.vx += tx*(0.9+0.2*cfg.strat);
-      this.vy += ty*(0.9+0.2*cfg.strat);
+      const side = Math.random()<0.5 ? -1 : 1;
+      this.vx += guideX*(0.9+0.2*cfg.strat) - guideY*side*STUCK_ESCAPE_JITTER;
+      this.vy += guideY*(0.9+0.2*cfg.strat) + guideX*side*STUCK_ESCAPE_JITTER;
       this.stuckT=0;
     }
     this.avoidObstacles();
@@ -4412,8 +4576,19 @@ class Collector extends Agent{
         this.adjustEnergy(this.energyDecay);
       }
     }
+    const pathPhase = this.carry ? 'carry' : 'seek';
+    if(this.pathPhase !== pathPhase){
+      this.pathPhase = pathPhase;
+      this.lastPathCost = Infinity;
+      this.pathProgressTicks = 0;
+      if(this.visitedCells) this.visitedCells.clear();
+      if(this.cellVisitTimestamps) this.cellVisitTimestamps.clear();
+      this.lastProgressStep = simSteps;
+    }
     if(this.carry){
-      rewardCollectorPathProgress(this, myGoal);
+      rewardCollectorPathProgress(this, myGoal, pathCostFields?.[teamId], PATH_PROGRESS_REWARD);
+    } else if(tgt && foodCostField){
+      rewardCollectorPathProgress(this, tgt, foodCostField, SEEK_PATH_PROGRESS_REWARD);
     }
     if(this.carry && Math.hypot(myGoal.x-this.x,myGoal.y-this.y)<myGoal.r){
       this.carry=false;
@@ -4421,37 +4596,18 @@ class Collector extends Agent{
       this.fitness += DELIVERY_REWARD;
       awardTeamPoints(this.teamState, 'delivery', DELIVERY_REWARD);
     }
-    if(this.carry && this.stuckPenaltyCooldown<=0 && this.stuckT>PATH_STUCK_THRESHOLD){
+    if(this.stuckPenaltyCooldown<=0 && this.stuckT>PATH_STUCK_THRESHOLD){
       this.fitness -= PATH_STUCK_PENALTY;
       this.stuckPenaltyCooldown = 45;
-    }
-    if(!this.carry){
-      this.lastPathCost = Infinity;
-      this.pathProgressTicks = 0;
-      if(wasCarrying && this.visitedCells){
-        this.visitedCells.clear();
-      }
-      if(wasCarrying && this.cellVisitTimestamps){
-        this.cellVisitTimestamps.clear();
-      }
-      if(wasCarrying){
-        this.lastProgressStep = simSteps;
-      }
-    } else if(!wasCarrying){
-      this.lastPathCost = Infinity;
-      this.pathProgressTicks = 0;
-      if(this.visitedCells) this.visitedCells.clear();
-      if(this.cellVisitTimestamps) this.cellVisitTimestamps.clear();
     }
   }
 }
 
-function rewardCollectorPathProgress(agent, goal){
-  if(!agent || !goal) return;
-  if(!grid || !pathCostFields) return;
+function rewardCollectorPathProgress(agent, target, field, rewardScale=PATH_PROGRESS_REWARD){
+  if(!agent || !target) return;
+  if(!grid) return;
   const teamId = agent.team;
   if(!teamId) return;
-  const field = pathCostFields[teamId];
   if(!field || !field.length) return;
   if(!Number.isFinite(GW) || !Number.isFinite(GH) || GW<=0 || GH<=0) return;
   const cx = clampi((agent.x/CS)|0, 0, GW-1);
@@ -4493,8 +4649,9 @@ function rewardCollectorPathProgress(agent, goal){
   }
   const delta = agent.lastPathCost - cost;
   if(delta > PATH_PROGRESS_MIN_DELTA){
-    const losFactor = hasLineOfSight(agent.x, agent.y, goal.x, goal.y, LINE_OF_SIGHT_PADDING) ? 1 : 0.25;
-    const reward = delta * PATH_PROGRESS_REWARD * losFactor;
+    const losFactor = hasLineOfSight(agent.x, agent.y, target.x, target.y, LINE_OF_SIGHT_PADDING) ? 1 : 0.25;
+    const cappedDelta = Math.min(delta, 3);
+    const reward = cappedDelta * rewardScale * losFactor;
     if(Number.isFinite(reward) && reward > 0){
       agent.fitness += reward;
     }
@@ -4834,6 +4991,7 @@ let lastSpawnSimMs = 0;
 let lastFrameTime = initialTimestamp;
 function setup(){
   fruits.length=0;
+  fruitsVersion++;
   activeTeamStates=[];
   const activeTeams = params.teams.filter((team)=> team.active);
   if(activeTeams.length===0){
@@ -5071,6 +5229,7 @@ function drawTopAgentHighlight(agent, radius){
 
 function getSensorStrokeColor(key, vec, agent){
   if(key==='target'){
+    if(vec?.mode === 'path') return 'rgba(74,222,128,0.95)';
     if(vec?.mode === 'goal' || vec?.mode === 'carrier') return 'rgba(251,191,36,0.9)';
     return 'rgba(56,189,248,0.9)';
   }
@@ -5215,6 +5374,9 @@ function resetTraining(preserveObstacles=false){
   for(const key of Object.keys(bestFitnessByTeam)){
     delete bestFitnessByTeam[key];
   }
+  for(const key of Object.keys(teamEvoMeta)){
+    delete teamEvoMeta[key];
+  }
   evo.populations = {};
   params.teams.forEach((team)=>{
     const count = Math.max(0, Math.round(team.count));
@@ -5257,6 +5419,7 @@ function runSimulationStep(){
   currentTopAgent = null;
   currentTopFitness = -Infinity;
   updatePathCostsIfNeeded();
+  updateFoodFieldIfNeeded();
   for(const team of activeTeamStates){
     for(const agent of team.agents){
       agent.update();
