@@ -291,6 +291,42 @@
     }
     .sim-top-bar .fps-counter { font-family: var(--font-mono); color: var(--accent-ok); }
 
+    /* Which classifier is driving the tickets, readable without opening the
+       sidebar - the whole point of the comparison is knowing which mode you are
+       looking at. */
+    .mode-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      margin-left: auto; margin-right: 14px;
+      padding: 4px 11px; border-radius: 999px;
+      font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+      letter-spacing: .3px; white-space: nowrap;
+      border: 1px solid currentColor;
+      transition: color .25s ease, background .25s ease;
+    }
+    .mode-badge .mode-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: currentColor; flex-shrink: 0;
+    }
+    .mode-badge .mode-score { opacity: .75; font-weight: 400; }
+    .mode-badge .mode-score:empty { display: none; }
+
+    .mode-badge.is-off      { color: var(--text-dim); background: rgba(160,172,207,.10); }
+    .mode-badge.is-keyword  { color: #ffc98a;         background: rgba(255,201,138,.12); }
+    .mode-badge.is-live     { color: var(--accent-ok); background: rgba(124,242,157,.14); }
+    .mode-badge.is-error    { color: var(--accent-bad); background: rgba(244,114,182,.14); }
+    .mode-badge.is-waiting  { color: var(--accent);    background: rgba(56,189,248,.12); }
+
+    /* Only the live model pulses, so "Jev is actually running" is unmistakable. */
+    .mode-badge.is-live .mode-dot { animation: modePulse 1.6s ease-in-out infinite; }
+    @keyframes modePulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(124,242,157,.6); }
+      50%      { opacity: .5; box-shadow: 0 0 0 5px rgba(124,242,157,0); }
+    }
+
+    @media (max-width: 900px) {
+      .mode-badge .mode-score { display: none; }
+    }
+
     /* Glow overlays */
     .neon-pulse {
         position:absolute;
@@ -653,6 +689,11 @@
   <div class="viewport">
     <div class="sim-top-bar">
         <span><strong style="color:var(--accent)">Evolve:</strong> Data Sorting Simulation</span>
+        <span class="mode-badge is-off" id="modeBadge">
+          <span class="mode-dot"></span>
+          <span id="modeBadgeText">JEV OFF &mdash; random categories</span>
+          <span class="mode-score" id="modeBadgeScore"></span>
+        </span>
         <span class="fps-counter" id="fpsDisplay">FPS: 0</span>
     </div>
     <div class="episode-progress"><div class="fill" id="episodeFill"></div></div>
@@ -3251,6 +3292,61 @@ function renderScoreboard() {
     }
 }
 
+const modeBadge = document.getElementById('modeBadge');
+const modeBadgeText = document.getElementById('modeBadgeText');
+const modeBadgeScore = document.getElementById('modeBadgeScore');
+
+/**
+ * Report the mode the tickets are ACTUALLY coming from, not the dropdown's
+ * position. Selecting Jev while the key is missing, the proxy is unset, or the
+ * API is failing must not look like Jev is running.
+ */
+function renderModeBadge() {
+    const acc = ticketLabeler.accuracy();
+    const score = (acc === null) ? '' : `${(acc * 100).toFixed(0)}% vs key`;
+    let cls = 'is-off';
+    let text = 'JEV OFF — random categories';
+
+    if (ticketSource === 'keyword') {
+        cls = 'is-keyword';
+        text = 'JEV OFF — keyword rules, no AI';
+    } else if (ticketSource === 'typesafe') {
+        switch (ticketLabeler.status) {
+            case 'error':
+                cls = 'is-error';
+                text = 'JEV FAILED — see sidebar';
+                break;
+            case 'needs-key':
+                cls = 'is-error';
+                text = 'JEV BLOCKED — no API key';
+                break;
+            case 'probing':
+            case 'idle':
+                cls = 'is-waiting';
+                text = 'JEV CONNECTING…';
+                break;
+            case 'labelling':
+            case 'ready':
+                // Only claim Jev is live once it has actually classified something.
+                if (ticketLabeler.stats.labelled > 0) {
+                    cls = 'is-live';
+                    text = 'JEV ACTIVE — classifying live';
+                } else {
+                    cls = 'is-waiting';
+                    text = 'JEV CONNECTING…';
+                }
+                break;
+            default:
+                cls = 'is-waiting';
+                text = 'JEV CONNECTING…';
+        }
+    }
+
+    modeBadge.className = 'mode-badge ' + cls;
+    modeBadgeText.innerHTML = text;
+    modeBadgeScore.innerText = (cls === 'is-live' || cls === 'is-keyword') ? score : '';
+}
+
 const typesafeProxyNote = document.getElementById('typesafeProxyNote');
 const typesafeKeyGroup = document.getElementById('typesafeKeyGroup');
 const typesafeKeyWarning = document.getElementById('typesafeKeyWarning');
@@ -3268,6 +3364,7 @@ function renderTypeSafeStatus() {
     typesafeKeyWarning.style.display = viaProxy ? 'none' : 'block';
 
     renderScoreboard();
+    renderModeBadge();
 }
 
 ticketLabeler.onChange(renderTypeSafeStatus);
