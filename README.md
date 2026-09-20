@@ -119,6 +119,17 @@ The page probes `GET api/typesafe` when TypeSafe mode is switched on. If the
 path 404s it falls back to calling the API directly and asks for a key, so the
 same file works both ways.
 
+Two things to check if a deploy looks stale:
+
+- **Production must track `main`** (Vercel → Settings → Git → Production Branch).
+  Promoting a branch preview to production pins production to that commit, and
+  later merges to `main` will not appear however many times you reload.
+- **Environment variables need a rebuild.** Adding `TYPESAFE_API_KEY` does not
+  affect an already-built deployment; redeploy after setting it.
+
+The mode badge in the simulation's top bar is the quickest way to tell which
+version is live and whether the model is actually running.
+
 > **Security:** with the proxy, the key stays on the server and never reaches the
 > browser. Without it, the key is entered in the page and lives in `localStorage` —
 > readable by anyone with access to that browser, and vulnerable to any script
