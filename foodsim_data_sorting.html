@@ -3268,9 +3268,14 @@ const scoreJevEl = document.getElementById('scoreJev');
 const scoreNoteEl = document.getElementById('scoreNote');
 
 function formatScore(which) {
-    const s = ticketLabeler.scores[which];
-    if (!s || !s.graded) return '—';
-    return `${((s.correct / s.graded) * 100).toFixed(0)}%  (${s.correct}/${s.graded})`;
+    const acc = ticketLabeler.accuracy(which);
+    if (acc === null) return '—';
+    const seen = ticketLabeler.coverage(which);
+    const total = ticketLabeler.corpusSize();
+    // Show coverage when a classifier has not yet seen the whole corpus, so a
+    // score from three tickets is never mistaken for a finished benchmark.
+    const suffix = seen < total ? ` of ${seen}/${total}` : '';
+    return `${(acc * 100).toFixed(0)}%  (${ticketLabeler.correctCount(which)}/${seen})${suffix}`;
 }
 
 function renderScoreboard() {
