@@ -45,6 +45,26 @@ Hovering a ticket shows its text, Jev's confidence, and the full probability
 spread across the three categories — useful for seeing whether agents mis-sort
 the tickets the model was least sure about.
 
+### Measured results
+
+From a live run against the real API on 2026-09-20, all 48 tickets, uncached:
+
+| | Jev (`jev-latest`) | Keyword rules |
+|---|---|---|
+| Accuracy vs key | **94%** (45/48) | 83% (40/48) |
+| Latency | 1.02 s per request | ~0 ms, local |
+| Per ticket, amortised | **21 ms** | — |
+| Tokens per ticket | 302 | 0 |
+
+Six requests of eight tickets, all in flight at once: one request takes a second,
+but eight questions are answered in parallel within it, so a decision costs 21 ms.
+Set *Tickets per request* to 1 in Jev Lab to watch that collapse into 48 round trips.
+
+All five of Jev's mistakes leaned the same way — toward `incident`. `incident`
+itself was 16/16; the losses were one `request` and two `problem` tickets called
+incidents. That is the boundary that needs the sentence read rather than matched:
+telling a fault happening now from one that keeps happening.
+
 ### Comparing classifiers honestly
 
 The corpus in `typesafe-tickets.js` carries a hand-written **gold label** per
