@@ -528,7 +528,14 @@
     if (served) this.emit();
 
     if (!uncached.length) {
-      if (this.pool.length < POOL_TARGET) this.refill();
+      if (this.pool.length < POOL_TARGET) {
+        this.refill();
+      } else {
+        // Every ticket came from cache, so no request is made and the status
+        // would otherwise sit at 'idle' forever - making a working run look
+        // like one still connecting.
+        this.setStatus('ready');
+      }
       return;
     }
 

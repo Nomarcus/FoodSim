@@ -2530,7 +2530,7 @@ function updateClassifierStats() {
     if (!srcEl) return;
 
     const live = ticketSource === 'typesafe' && ticketLabeler.status === 'ready'
-        && ticketLabeler.stats.labelled > 0;
+        && ticketLabeler.coverage('jev') > 0;
 
     if (ticketSource === 'synthetic') {
         srcEl.innerText = 'SYNTHETIC';
@@ -3412,8 +3412,10 @@ function renderModeBadge() {
                 break;
             case 'labelling':
             case 'ready':
-                // Only claim Jev is live once it has actually classified something.
-                if (ticketLabeler.stats.labelled > 0) {
+                // Only claim Jev is live once it has actually classified
+                // something. Count cached verdicts too: a reload serves the
+                // whole corpus from cache without a single fresh API call.
+                if (ticketLabeler.coverage('jev') > 0) {
                     cls = 'is-live';
                     text = 'JEV ACTIVE — classifying live';
                 } else {
