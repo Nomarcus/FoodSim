@@ -1,0 +1,54 @@
+# Vercel's Git integration stopped producing builds for this repo partway
+# through a session, with no error anywhere: merges and direct pushes to main
+# both landed and neither deployed. Nothing on the page told the user, which is
+# the worst way for a deploy to fail.
+#
+# This does not rely on that integration. It calls a Vercel Deploy Hook - a URL
+# that builds the production branch when anything POSTs to it.
+#
+# Setup, once:
+#   1. Vercel -> the food-sim project -> Settings -> Git -> Deploy Hooks
+#      Create one. Name: "github-main". Branch: main. Copy the URL.
+#   2. GitHub -> this repo -> Settings -> Secrets and variables -> Actions
+#      New repository secret. Name: VERCEL_DEPLOY_HOOK. Value: that URL.
+#
+# The hook URL is a secret: anyone holding it can trigger builds, so it belongs
+# in the secret store and never in this file.
+#
+# Without the secret this workflow skips cleanly rather than failing, so the
+# repo stays green until it is configured.
+
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # lets a deploy be triggered by hand from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the Vercel deploy hook
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "VERCEL_DEPLOY_HOOK is not set - skipping."
+            echo "Add it under Settings > Secrets and variables > Actions."
+            exit 0
+          fi
+
+          echo "Triggering a build for ${GITHUB_SHA}"
+          code=$(curl -sS -o response.json -w '%{http_code}' -X POST "$HOOK")
+          echo "HTTP $code"
+          cat response.json || true
+
+          # A hook that answers anything but 2xx has not queued a build, and a
+          # silent pass here would recreate exactly the failure this exists to
+          # prevent.
+          case "$code" in
+            2*) echo "Build queued." ;;
+            *)  echo "::error::Vercel deploy hook returned $code - no build was queued."
+                exit 1 ;;
+          esac

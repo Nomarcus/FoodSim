@@ -7,22 +7,29 @@ Static HTML simulations, no build step. Served from GitHub Pages and from Vercel
 The Vercel project is **food-sim** (`food-sim-six.vercel.app`). The pages that
 matter are `jev-lab.html` and `foodsim_data_sorting.html`.
 
-**Merging a pull request through the GitHub API does not reliably trigger a
-Vercel build.** This has now cost several rounds of "it's merged" followed by
-the user looking at an old page. In this repo's history, every direct
-`git push origin main` produced a deployment, and several API merges (#229,
-#231) produced none at all.
+**Vercel's Git integration for this repo stopped producing builds partway
+through 2026-09-20 and did not recover.** After that point neither API merges
+nor direct pushes to `main` deployed anything, with no error surfaced anywhere.
 
-So: **land work by merging locally and pushing `main` directly.**
+An earlier note here blamed API merges specifically. That was wrong - it was
+inferred from deployments that had all happened *before* the integration broke,
+and a direct push failed the same way an hour later. Do not repeat that
+inference from a handful of rows.
+
+`.github/workflows/deploy.yml` now calls a Vercel **Deploy Hook** on every push
+to `main`, which does not depend on the Git integration. It needs a
+`VERCEL_DEPLOY_HOOK` repository secret; without it the workflow skips.
+
+Landing work:
 
 ```bash
 git checkout main && git pull
 git merge --no-ff claude/<branch>
-git push origin main          # this is what triggers the deploy
+git push origin main
 ```
 
-Open a PR first if the change wants review, but do the final landing with a
-push, not with the merge button or the API.
+Then confirm a build actually exists for that commit - the Actions run is the
+first place to look, Vercel's Deployments list the second.
 
 Two more traps, both already hit:
 
