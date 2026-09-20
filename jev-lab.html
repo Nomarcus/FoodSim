@@ -104,6 +104,24 @@
   #liveStage:fullscreen .note { display: none; }
   input[type=range] { width: 130px; accent-color: var(--incident); }
 
+
+  .lane { margin-top: 14px; }
+  .lane-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .lane-name { font-size: 12px; font-weight: 600; }
+  .lane-time { font-size: 13px; font-weight: 700; color: var(--ink-1); }
+  .lane-score { font-size: 11px; color: var(--ink-2); }
+  .cells { display: flex; flex-wrap: wrap; gap: 2px; }
+  .cells i {
+    width: 14px; height: 14px; border-radius: 3px; background: var(--grid);
+    display: block; transition: background .18s;
+  }
+  .cells i.ok { background: var(--good); }
+  .cells i.no { background: var(--critical); }
+  canvas#dupStage {
+    display: block; width: 100%; height: min(52vh, 420px); margin-top: 12px;
+    background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
+  }
+
   svg { display: block; width: 100%; overflow: visible; }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
   .axis-line { stroke: var(--axis); stroke-width: 1; }
@@ -226,6 +244,73 @@
     </div>
   </div>
 
+
+  <div class="panel">
+    <h2>Race — Jev against the keyword rules</h2>
+    <div class="controls">
+      <button class="primary" id="raceRun">Run race</button>
+      <div class="field">
+        <label for="raceCount">Tickets</label>
+        <select id="raceCount">
+          <option value="24">24</option>
+          <option value="48" selected>48</option>
+          <option value="96">96</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="lane" id="laneKeyword">
+      <div class="lane-head">
+        <span class="lane-name">Keyword rules</span>
+        <span class="lane-time mono" id="raceTimeKw">—</span>
+        <span class="lane-score mono" id="raceScoreKw"></span>
+      </div>
+      <div class="cells" id="raceCellsKw"></div>
+    </div>
+
+    <div class="lane" id="laneJev">
+      <div class="lane-head">
+        <span class="lane-name">TypeSafe Jev</span>
+        <span class="lane-time mono" id="raceTimeJev">—</span>
+        <span class="lane-score mono" id="raceScoreJev"></span>
+      </div>
+      <div class="cells" id="raceCellsJev"></div>
+    </div>
+
+    <div class="legend" style="margin-top:12px">
+      <span class="tag"><span class="dot" style="background:var(--good)"></span>matched the key</span>
+      <span class="tag"><span class="dot" style="background:var(--critical)"></span>missed it</span>
+      <span class="tag"><span class="dot" style="background:var(--grid)"></span>not decided yet</span>
+    </div>
+    <div class="note" id="raceNote">
+      Both lanes get the same tickets in the same order. The rules finish before you
+      can see them move, which is the honest part of the comparison — and then the
+      red squares are the price of that.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Duplicates — the same fault in different words</h2>
+    <div class="controls">
+      <button class="primary" id="dupRun">Find duplicates</button>
+      <button id="dupReset">Scatter</button>
+    </div>
+    <canvas id="dupStage" aria-label="Tickets drawing together into clusters of duplicates"></canvas>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="label">Pairs judged</div><div class="value" id="dupPairs">—</div><div class="sub">every ticket against every other</div></div>
+      <div class="kpi"><div class="label">Requests</div><div class="value" id="dupReq">—</div><div class="sub" id="dupReqSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Wall clock</div><div class="value" id="dupTime">—</div><div class="sub">to judge them all</div></div>
+      <div class="kpi"><div class="label">Pairs correct</div><div class="value" id="dupAcc">—</div><div class="sub" id="dupAccSub">against the grouping key</div></div>
+    </div>
+    <div class="note">
+      Twelve tickets: three real groups of three, and three unrelated singletons.
+      Each pair is one <strong>noul</strong> — "are these the same underlying
+      problem?" — so 66 questions decide the whole grouping. The tickets share
+      almost no words with their own group, so keyword matching cannot find these;
+      the overlap is in meaning. Which tickets belong together is written down by
+      hand, so the result is checked, not just watched.
+    </div>
+  </div>
   <div class="panel">
     <h2>Run</h2>
     <div class="controls">
@@ -1231,6 +1316,284 @@ addEventListener('resize', syncField);
 syncField();
 requestAnimationFrame(frame);
 
+
+/* --- race ---------------------------------------------------------------
+ *
+ * Both lanes get the same tickets in the same order. The rules finish before
+ * the eye can follow, which is the honest half of the comparison; the red
+ * squares left behind are the other half.
+ */
+function raceCells(el, n) {
+  el.innerHTML = '';
+  const cells = [];
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement('i');
+    el.appendChild(c);
+    cells.push(c);
+  }
+  return cells;
+}
+
+async function runRace() {
+  const count = parseInt($('raceCount').value, 10);
+  const tickets = [];
+  for (let i = 0; i < count; i++) tickets.push(CORPUS[i % CORPUS.length]);
+
+  const kwCells = raceCells($('raceCellsKw'), count);
+  const jevCells = raceCells($('raceCellsJev'), count);
+  $('raceTimeKw').textContent = '—';
+  $('raceTimeJev').textContent = '—';
+  $('raceScoreKw').textContent = '';
+  $('raceScoreJev').textContent = '';
+  $('raceRun').disabled = true;
+
+  // Keyword lane: local, so it is done essentially before it starts.
+  const kwStart = performance.now();
+  const kwResults = tickets.map(t => TypeSafeTickets.classifyKeyword(t.text).label === t.gold);
+  const kwWall = performance.now() - kwStart;
+  kwResults.forEach((ok, i) => kwCells[i].className = ok ? 'ok' : 'no');
+  const kwCorrect = kwResults.filter(Boolean).length;
+  $('raceTimeKw').textContent = kwWall < 1 ? '<1 ms' : fmtMs(kwWall);
+  $('raceScoreKw').textContent = `${kwCorrect}/${count} correct`;
+
+  // Jev lane: real requests, filled in as each batch lands.
+  const size = 8;
+  const batches = [];
+  for (let i = 0; i < tickets.length; i += size) batches.push({ from: i, items: tickets.slice(i, i + size) });
+
+  const jevStart = performance.now();
+  let jevCorrect = 0;
+  try {
+    await Promise.all(batches.map(b => sendBatch(b.items).then(packet => {
+      packet.results.forEach((r, k) => {
+        jevCells[b.from + k].className = r.correct ? 'ok' : 'no';
+        if (r.correct) jevCorrect++;
+      });
+      $('raceTimeJev').textContent = fmtMs(performance.now() - jevStart);
+    })));
+  } catch (err) {
+    $('raceTimeJev').textContent = 'failed';
+    setStatus('Race: a request failed. Check the proxy.', true);
+    $('raceRun').disabled = false;
+    return;
+  }
+
+  const jevWall = performance.now() - jevStart;
+  $('raceTimeJev').textContent = fmtMs(jevWall);
+  $('raceScoreJev').textContent = `${jevCorrect}/${count} correct`;
+
+  const gap = jevCorrect - kwCorrect;
+  $('raceNote').innerHTML = gap === 0
+    ? `Level on accuracy this time. The rules took ${kwWall < 1 ? 'under a millisecond' : fmtMs(kwWall)}, Jev ${fmtMs(jevWall)}.`
+    : `The rules finished in ${kwWall < 1 ? 'under a millisecond' : fmtMs(kwWall)} and got <strong>${kwCorrect}</strong> right. ` +
+      `Jev took <strong>${fmtMs(jevWall)}</strong> and got <strong>${jevCorrect}</strong> — ` +
+      `${Math.abs(gap)} ticket${Math.abs(gap) === 1 ? '' : 's'} ${gap > 0 ? 'better' : 'worse'}, ` +
+      `at ${fmtMs(jevWall / count)} per decision.`;
+  $('raceRun').disabled = false;
+}
+
+$('raceRun').addEventListener('click', runRace);
+raceCells($('raceCellsKw'), 48);
+raceCells($('raceCellsJev'), 48);
+
+/* --- duplicates ---------------------------------------------------------
+ *
+ * Every pair of the twelve tickets is one noul: "are these the same underlying
+ * problem?" 66 questions settle the whole grouping. The tickets share almost no
+ * vocabulary with their own group, so this cannot be done by matching words.
+ *
+ * Which tickets belong together is written down by hand in DUPLICATES, so the
+ * clustering is checked rather than admired.
+ */
+const DUPS = TypeSafeTickets.DUPLICATES;
+const dupStage = $('dupStage');
+const dctx = dupStage.getContext('2d');
+
+const dup = { nodes: [], links: [], running: false };
+
+function dupSize() {
+  const ratio = devicePixelRatio || 1;
+  const w = dupStage.clientWidth, h = dupStage.clientHeight;
+  if (dupStage.width !== w * ratio || dupStage.height !== h * ratio) {
+    dupStage.width = w * ratio; dupStage.height = h * ratio;
+    dctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+  return { w, h };
+}
+
+function dupScatter() {
+  const { w, h } = dupSize();
+  dup.links = [];
+  dup.nodes = DUPS.map((d, i) => {
+    const a = (i / DUPS.length) * Math.PI * 2;
+    return {
+      ...d, i,
+      x: w / 2 + Math.cos(a) * Math.min(w, h) * 0.34,
+      y: h / 2 + Math.sin(a) * Math.min(w, h) * 0.34,
+      tx: null, ty: null, cluster: null, colW: w / 4
+    };
+  });
+}
+
+/** Union-find over the pairs the model called duplicates. */
+function clusterFrom(pairs) {
+  const parent = dup.nodes.map((_, i) => i);
+  const find = a => parent[a] === a ? a : (parent[a] = find(parent[a]));
+  pairs.forEach(p => {
+    if (!p.same) return;
+    const ra = find(p.a), rb = find(p.b);
+    if (ra !== rb) parent[ra] = rb;
+  });
+  return dup.nodes.map((_, i) => find(i));
+}
+
+async function runDuplicates() {
+  $('dupRun').disabled = true;
+  dupScatter();
+
+  const pairs = [];
+  for (let a = 0; a < DUPS.length; a++)
+    for (let b = a + 1; b < DUPS.length; b++) pairs.push({ a, b });
+
+  // The proxy caps questions per request, so the pairs go out in chunks.
+  const CHUNK = 32;
+  const chunks = [];
+  for (let i = 0; i < pairs.length; i += CHUNK) chunks.push(pairs.slice(i, i + CHUNK));
+
+  $('dupPairs').textContent = pairs.length;
+  $('dupReq').textContent = chunks.length;
+  $('dupReqSub').textContent = `${CHUNK} pairs each, in parallel`;
+  $('dupTime').textContent = '…';
+
+  const started = performance.now();
+
+  const ask = chunk => {
+    const state = { tickets: DUPS.map((d, i) => ({ index: i, text: d.text })) };
+    const questions = {};
+    chunk.forEach((p, k) => {
+      questions['pair_' + k] = {
+        type: 'noul',
+        instructions: 'Are `tickets[' + p.a + '].text` and `tickets[' + p.b + '].text` ' +
+                      'reports of the same underlying problem?',
+        criteria: {
+          true: 'The same fault or the same request, described by different people ' +
+                'in different words. Handling one would handle the other.',
+          false: 'Different problems, even if they involve similar systems or wording.'
+        }
+      };
+    });
+    return fetch(PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ state, questions })
+    }).then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(data => chunk.map((p, k) => {
+      const a = (data.answers || {})['pair_' + k];
+      return { ...p, noul: a ? a.noul : null, same: a ? a.noul >= 0.5 : false };
+    }));
+  };
+
+  let judged;
+  try {
+    judged = (await Promise.all(chunks.map(ask))).flat();
+  } catch (err) {
+    $('dupTime').textContent = 'failed';
+    setStatus('Duplicates: a request failed. Check the proxy.', true);
+    $('dupRun').disabled = false;
+    return;
+  }
+
+  const wall = performance.now() - started;
+  $('dupTime').textContent = fmtMs(wall);
+
+  // Score against the grouping key, pair by pair.
+  const correct = judged.filter(p =>
+    p.same === (DUPS[p.a].group === DUPS[p.b].group)).length;
+  $('dupAcc').textContent = `${((correct / judged.length) * 100).toFixed(0)}%`;
+  $('dupAcc').style.color = correct === judged.length ? 'var(--good)'
+    : correct / judged.length >= 0.9 ? 'var(--warning)' : 'var(--critical)';
+  $('dupAccSub').textContent = `${correct}/${judged.length} pairs against the key`;
+
+  // Pull each cluster together.
+  const roots = clusterFrom(judged);
+  const groups = [...new Set(roots)];
+  const { w, h } = dupSize();
+  const colW = w / groups.length;
+  groups.forEach((root, gi) => {
+    const members = dup.nodes.filter((_, i) => roots[i] === root);
+    const cx = colW * gi + colW / 2;
+    const rowH = Math.min(52, (h - 70) / Math.max(1, members.length));
+    const startY = h / 2 - ((members.length - 1) * rowH) / 2;
+    members.forEach((n, mi) => {
+      n.tx = cx;
+      n.ty = startY + mi * rowH;
+      n.cluster = gi;
+      n.colW = colW;
+    });
+  });
+  dup.links = judged.filter(p => p.same);
+
+  $('dupRun').disabled = false;
+}
+
+function dupFrame() {
+  const { w, h } = dupSize();
+  const css = getComputedStyle(document.documentElement);
+  const ink2 = css.getPropertyValue('--ink-2').trim();
+  const ink3 = css.getPropertyValue('--ink-3').trim();
+  const good = css.getPropertyValue('--good').trim();
+  const crit = css.getPropertyValue('--critical').trim();
+  const palette = LABELS.map(l => css.getPropertyValue('--' + l).trim());
+
+  dctx.clearRect(0, 0, w, h);
+
+  dup.nodes.forEach(n => {
+    if (n.tx === null) return;
+    n.x += (n.tx - n.x) * 0.07;
+    n.y += (n.ty - n.y) * 0.07;
+  });
+
+  dup.links.forEach(p => {
+    const a = dup.nodes[p.a], b = dup.nodes[p.b];
+    const right = DUPS[p.a].group === DUPS[p.b].group;
+    dctx.strokeStyle = right ? good : crit;
+    dctx.globalAlpha = 0.5; dctx.lineWidth = 1.5;
+    dctx.beginPath(); dctx.moveTo(a.x, a.y); dctx.lineTo(b.x, b.y); dctx.stroke();
+    dctx.globalAlpha = 1;
+  });
+
+  dup.nodes.forEach(n => {
+    const col = n.cluster === null ? ink3 : palette[n.cluster % palette.length];
+    dctx.fillStyle = col;
+    dctx.beginPath(); dctx.arc(n.x, n.y, 9, 0, Math.PI * 2); dctx.fill();
+    dctx.fillStyle = ink2;
+    dctx.font = '10px ' + css.getPropertyValue('--mono');
+    dctx.textAlign = 'left';
+    // Beside the node and clipped to the column. Centred labels below the node
+    // ran into the neighbouring column as soon as a cluster grew.
+    // Also clip to the canvas edge - the rightmost column's label ran off it.
+    const avail = Math.min((n.colW || 160) - 46, w - (n.x + 15) - 8);
+    let label = n.text;
+    while (label.length > 4 && dctx.measureText(label + '…').width > avail) {
+      label = label.slice(0, -1);
+    }
+    dctx.fillText(label + '…', n.x + 15, n.y + 4);
+  });
+
+  requestAnimationFrame(dupFrame);
+}
+
+$('dupRun').addEventListener('click', runDuplicates);
+$('dupReset').addEventListener('click', () => {
+  dupScatter();
+  ['dupPairs', 'dupReq', 'dupTime', 'dupAcc'].forEach(id => $(id).textContent = '—');
+  $('dupAcc').style.color = '';
+});
+addEventListener('resize', dupScatter);
+dupScatter();
+requestAnimationFrame(dupFrame);
 
 /* --- boot -------------------------------------------------------------- */
 

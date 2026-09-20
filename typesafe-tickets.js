@@ -134,6 +134,35 @@
     { gold: 'incident', text: 'The login page loads but the submit button does nothing for Safari users specifically.' }
   ];
 
+
+  /*
+   * A second, small corpus for the duplicate-clustering demo. Three genuine
+   * groups of three - the same underlying fault described by different people
+   * in different words - plus three unrelated singletons.
+   *
+   * `group` is the answer key: two tickets belong together exactly when their
+   * group matches. Nothing shares vocabulary with its own group by accident;
+   * the overlap is in meaning, which is the point. Keyword matching cannot
+   * find these, so the clustering is a real test rather than a light show.
+   */
+  var DUPLICATES = [
+    { group: 'vpn', text: 'I keep getting dropped from the VPN every ten minutes or so and have to reconnect.' },
+    { group: 'vpn', text: 'Remote access keeps cutting out. It comes back on its own but I lose whatever I was in the middle of.' },
+    { group: 'vpn', text: 'Cannot stay connected to the company network from home this week \u2014 it drops constantly.' },
+
+    { group: 'printer', text: 'The printer by the kitchen on floor 3 has gone offline again.' },
+    { group: 'printer', text: 'Nobody on the third floor can print. The queue just sits there and nothing comes out.' },
+    { group: 'printer', text: 'Third floor device is unreachable from my laptop, it says offline in the dialog.' },
+
+    { group: 'payroll', text: 'The payroll export produced an empty file this month.' },
+    { group: 'payroll', text: 'Salary file came out with zero rows again when I ran the export.' },
+    { group: 'payroll', text: 'The monthly run finished but the output has no records in it at all.' },
+
+    { group: 'desk', text: 'Please order a standing desk for my office.' },
+    { group: 'adobe', text: 'I need the Adobe suite installed before Friday\u2019s workshop.' },
+    { group: 'slack', text: 'Could you add me to the engineering Slack workspace?' }
+  ];
+
   /*
    * The no-AI baseline: the sort of keyword rules you would write if you had to
    * classify these tickets without a model. Deliberately plausible rather than
@@ -691,6 +720,7 @@
     TicketLabeler: TicketLabeler,
     classifyKeyword: classifyKeyword,
     CORPUS: CORPUS,
+    DUPLICATES: DUPLICATES,
     CRITERIA: CRITERIA,
     LABELS: LABELS,
     DEFAULT_MODEL: DEFAULT_MODEL,
