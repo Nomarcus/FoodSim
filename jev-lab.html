@@ -189,18 +189,43 @@
       <div class="kpi"><div class="label">Decisions / s</div><div class="value" id="lRate">0.0</div><div class="sub">last 5 seconds</div></div>
       <div class="kpi"><div class="label">Avg latency</div><div class="value" id="lLat">—</div><div class="sub">per request</div></div>
       <div class="kpi"><div class="label">Sorted</div><div class="value" id="lSorted">0</div><div class="sub" id="lSortedSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Judgments</div><div class="value" id="lJudg">0</div><div class="sub">3 per ticket, one round trip</div></div>
+      <div class="kpi"><div class="label">Needs a human</div><div class="value" id="lEsc">0</div><div class="sub">flagged by the model</div></div>
     </div>
     <div class="note" id="liveNote">
-      Couriers fetch an unclassified ticket and carry it up. The ticket is grey until
-      Jev answers. Raise the game speed past what the round trip allows and the
-      couriers stack up at the top — the wait you see is the model's real latency,
-      which no slider can speed up.
+      Couriers take the straight line to the nearest package, pick it up and carry it
+      to the bin. The package stays grey with a <strong>?</strong> until Jev answers —
+      raise the game speed past what the round trip allows and they bunch up waiting,
+      because that pause is the model's real latency and no slider shortens it.
+      <br><br>
+      <strong>Each ticket gets three judgments at once:</strong> its category, an
+      urgency score, and whether it needs a human. They are independent questions over
+      the same text, so they are answered in parallel inside one request — a batch of
+      eight tickets is <strong>24 typed judgments in a single round trip</strong>.
+      The parcel widens with urgency, and an amber ◆ marks a ticket the model says
+      needs a person.
+      <br><br>
+      Only the category has an answer key, so only the category is scored. Urgency and
+      escalation are shown rather than graded — there is no hand-written truth for
+      them, and claiming accuracy would be inventing it. Courier movement and spacing
+      are ordinary local code, not the model.
     </div>
   </div>
 
   <div class="panel">
     <h2>Run</h2>
     <div class="controls">
+      <div class="field">
+        <label for="count">Tickets</label>
+        <select id="count">
+          <option value="8">8</option>
+          <option value="24">24</option>
+          <option value="48" selected>48 — the whole corpus</option>
+          <option value="96">96</option>
+          <option value="240">240</option>
+          <option value="480">480</option>
+        </select>
+      </div>
       <div class="field">
         <label for="batch">Tickets per request</label>
         <select id="batch">
@@ -232,6 +257,7 @@
       <div class="kpi"><div class="label">Throughput</div><div class="value" id="kTput">—</div><div class="sub">tickets / second</div></div>
       <div class="kpi"><div class="label">Decision time</div><div class="value" id="kPer">—</div><div class="sub">per ticket, amortised</div></div>
       <div class="kpi"><div class="label">Tokens / ticket</div><div class="value" id="kTok">—</div><div class="sub" id="kTokSub">in + out</div></div>
+      <div class="kpi"><div class="label">Judgments</div><div class="value" id="kJudg">—</div><div class="sub" id="kJudgSub">typed answers</div></div>
     </div>
     <div class="note" id="compare"></div>
   </div>
@@ -258,7 +284,7 @@
     <div class="scroll">
       <table>
         <thead>
-          <tr><th style="width:44%">Ticket</th><th>Key</th><th>Chose</th><th style="width:130px">Probabilities</th><th>Conf</th><th></th></tr>
+          <tr><th style="width:38%">Ticket</th><th>Key</th><th>Chose</th><th style="width:120px">Probabilities</th><th>Conf</th><th>Urgency</th><th>Human?</th><th></th></tr>
         </thead>
         <tbody id="rows">
           <tr><td colspan="6" style="color:var(--ink-3)">No run yet.</td></tr>
@@ -310,16 +336,49 @@ function fmtMs(ms) {
   return ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms';
 }
 
-/** One request: N tickets as N independent choice questions over shared state. */
+/*
+ * Three independent judgments per ticket, all in one request: what it is, how
+ * urgent it is, and whether it needs a person. They are asked over the same
+ * state and cannot see each other's answers, so they are decided in parallel -
+ * a batch of 8 tickets is 24 typed judgments in a single round trip.
+ *
+ * Only the category has an answer key. Urgency and escalation are shown, not
+ * scored: there is no hand-written truth for them, so claiming accuracy would
+ * be inventing it.
+ */
+const URGENCY = [
+  'Can wait. A routine ask with no deadline, and nobody is blocked from working.',
+  'Normal. One person is inconvenienced, or there is a soft deadline.',
+  'Pressing. Someone cannot do their job right now, or a deadline is hours away.',
+  'Critical. Many people or paying customers are affected, money or safety is at ' +
+  'risk, or a production service is down.'
+];
+
 function buildPayload(entries) {
   const state = { tickets: [] };
   const questions = {};
   entries.forEach((e, i) => {
     state.tickets.push({ index: i, text: e.text });
-    questions['ticket_' + i] = {
+    const ref = '`tickets[' + i + '].text`';
+    questions['cat_' + i] = {
       type: 'choice',
-      instructions: 'Classify the support ticket in `tickets[' + i + '].text`.',
+      instructions: 'Classify the support ticket in ' + ref + '.',
       criteria: CRITERIA
+    };
+    questions['urg_' + i] = {
+      type: 'score',
+      instructions: 'How urgent is the support ticket in ' + ref + '?',
+      criteria: URGENCY
+    };
+    questions['esc_' + i] = {
+      type: 'noul',
+      instructions: 'Does the support ticket in ' + ref + ' need a human specialist ' +
+                    'rather than routine first-line handling?',
+      criteria: {
+        true: 'It needs judgement, investigation, or authority that a first-line ' +
+              'agent following a script does not have.',
+        false: 'A first-line agent can resolve it by following the usual procedure.'
+      }
     };
   });
   return { state, questions };
@@ -344,27 +403,42 @@ async function sendBatch(entries) {
   }
 
   const data = JSON.parse(text);
+  const answers = data.answers || {};
   const results = entries.map((entry, i) => {
-    const a = (data.answers || {})['ticket_' + i];
-    const predicted = a && LABELS.includes(a.choice) ? a.choice : null;
+    const cat = answers['cat_' + i];
+    const urg = answers['urg_' + i];
+    const esc = answers['esc_' + i];
+    const predicted = cat && LABELS.includes(cat.choice) ? cat.choice : null;
     return {
       text: entry.text, gold: entry.gold, predicted,
-      confidence: a ? a.confidence : null,
-      probabilities: a ? a.probabilities : null,
+      confidence: cat ? cat.confidence : null,
+      probabilities: cat ? cat.probabilities : null,
+      urgency: urg && typeof urg.score === 'number' ? urg.score : null,
+      escalate: esc && typeof esc.noul === 'number' ? esc.noul : null,
       correct: predicted === entry.gold,
       latency
     };
   });
 
-  return { latency, results, usage: data.usage || { input_tokens: 0, output_tokens: 0 } };
+  return {
+    latency, results,
+    questions: Object.keys((data.answers) || {}).length,
+    usage: data.usage || { input_tokens: 0, output_tokens: 0 }
+  };
 }
 
 async function runBenchmark() {
   const size = parseInt($('batch').value, 10);
+  const count = parseInt($('count').value, 10);
   const parallel = $('mode').value === 'parallel';
 
+  // Past 48 the corpus repeats. That is real work for the model either way, but
+  // it is the same 48 texts, so accuracy cannot move - only the timings do.
+  const tickets = [];
+  for (let i = 0; i < count; i++) tickets.push(CORPUS[i % CORPUS.length]);
+
   const batches = [];
-  for (let i = 0; i < CORPUS.length; i += size) batches.push(CORPUS.slice(i, i + size));
+  for (let i = 0; i < tickets.length; i += size) batches.push(tickets.slice(i, i + size));
 
   $('run').disabled = true;
   $('runBaseline').disabled = true;
@@ -372,15 +446,26 @@ async function runBenchmark() {
 
   const wallStart = performance.now();
   let packets;
+  const streamed = [];
+  let done = 0;
+
+  // Show tickets as they come back rather than only at the end - watching the
+  // list fill is most of the point when the run is long.
+  const absorb = packet => {
+    done++;
+    streamed.push(...packet.results);
+    setStatus(`Request ${done} of ${batches.length} \u00b7 ${streamed.length} of ${count} tickets classified\u2026`);
+    drawRows(streamed);
+    return packet;
+  };
 
   try {
     if (parallel) {
-      packets = await Promise.all(batches.map(sendBatch));
+      packets = await Promise.all(batches.map(b => sendBatch(b).then(absorb)));
     } else {
       packets = [];
       for (let i = 0; i < batches.length; i++) {
-        packets.push(await sendBatch(batches[i]));
-        setStatus(`Request ${i + 1} of ${batches.length}…`);
+        packets.push(absorb(await sendBatch(batches[i])));
       }
     }
   } catch (err) {
@@ -402,11 +487,12 @@ async function runBenchmark() {
   lastRun = {
     results, latencies, wall, size, parallel,
     requests: batches.length, tokensIn, tokensOut,
+    judgments: packets.reduce((s, p) => s + (p.questions || 0), 0),
     correct: results.filter(r => r.correct).length
   };
 
   render(lastRun);
-  setStatus(`Done — ${CORPUS.length} tickets, ${batches.length} request${batches.length === 1 ? '' : 's'}, ${fmtMs(wall)} wall clock.`);
+  setStatus(`Done \u2014 ${count} tickets, ${batches.length} request${batches.length === 1 ? '' : 's'}, ${fmtMs(wall)} wall clock.`);
   $('run').disabled = false;
   $('runBaseline').disabled = false;
 }
@@ -458,6 +544,10 @@ function render(run) {
   const tokens = run.tokensIn + run.tokensOut;
   $('kTok').textContent = tokens ? Math.round(tokens / n) : '—';
   $('kTokSub').textContent = tokens ? `${run.tokensIn} in · ${run.tokensOut} out` : 'not reported';
+
+  $('kJudg').textContent = run.judgments || '—';
+  $('kJudgSub').textContent = run.judgments
+    ? `${Math.round(run.judgments / run.requests)} per request, in parallel` : 'typed answers';
 
   drawLatency(run);
   drawConfusion(run.results);
@@ -597,8 +687,10 @@ function drawRows(results) {
   const tbody = $('rows');
   // Mistakes first - they are the interesting rows.
   const ordered = results.slice().sort((a, b) => (a.correct === b.correct) ? 0 : (a.correct ? 1 : -1));
+  const CAP = 200;
+  const shown = ordered.slice(0, CAP);
 
-  tbody.innerHTML = ordered.map(r => {
+  tbody.innerHTML = shown.map(r => {
     const probs = r.probabilities || {};
     const split = LABELS.map(l => {
       const pct = ((probs[l] || 0) * 100).toFixed(1);
@@ -613,37 +705,54 @@ function drawRows(results) {
       <td class="mono">${conf}</td>
       <td class="verdict ${r.correct ? 'ok' : 'no'}">${r.correct ? '✓' : '✗'}</td>
     </tr>`;
-  }).join('');
+  }).join('') + (ordered.length > CAP
+    ? `<tr><td colspan="8" style="color:var(--ink-3)">\u2026 and ${ordered.length - CAP} more, mistakes shown first</td></tr>`
+    : '');
 }
 
 /* --- live stage --------------------------------------------------------
  *
- * A courier descends to the inbox, picks up an unclassified ticket, and carries
- * it up. The ticket is dispatched to Jev while in transit and stays grey until
- * the answer lands; if the courier reaches the top first it holds there. That
- * hold IS the network round trip, so raising the game speed past what the API
- * can sustain makes latency visible as a queue rather than hiding it.
+ * An open field. Packages drop anywhere; a courier takes the straight line to
+ * the nearest free one, picks it up, and the ticket goes to Jev. The package
+ * stays grey until the answer lands - that wait is the real network round trip
+ * and no slider shortens it. Once classified, the courier beelines for the bin
+ * the model named.
+ *
+ * IMPORTANT, for anyone narrating this: the collision avoidance is ordinary
+ * local steering running in this browser - each courier is pushed away from
+ * neighbours within a radius. It is deterministic and it does not learn. The
+ * only decision the model makes is which category a ticket belongs to.
  */
 const stage = $('stage');
 const sctx = stage.getContext('2d');
+
+const COURIER_R = 7;
+const AVOID_R = 34;        // neighbours inside this are steered around
+const MIN_SEP = 15;        // hard floor: bodies are pushed apart to this
+const AVOID_WEIGHT = 2.4;
 
 const live = {
   running: false,
   speed: 4,
   courierCount: 12,
+  packageCount: 60,   // recomputed from courierCount in syncField
   batch: 8,
   couriers: [],
-  queued: [],          // tickets picked up, not yet dispatched
+  packages: [],
+  queued: [],
   inFlight: 0,
   sorted: 0,
   correct: 0,
   latencies: [],
-  recent: [],          // timestamps of resolved decisions, for the rate
+  recent: [],
   cursor: 0,
   lastFrame: 0,
   dispatchAt: 0,
-  flashes: [],          // {x, y, t, color} - a ring where a ticket landed
-  binCounts: [0, 0, 0]
+  flashes: [],
+  binCounts: [0, 0, 0],
+  judgments: 0,
+  escalated: 0,
+  collisions: 0
 };
 
 function stageSize() {
@@ -656,32 +765,46 @@ function stageSize() {
   return { w, h };
 }
 
+function fieldTop(h) { return 96; }   // below the bins and the Jev chip
+
 function nextEntry() {
   const e = CORPUS[live.cursor % CORPUS.length];
   live.cursor++;
   return e;
 }
 
-function makeCourier(i, w, h) {
+function spawnPackage(w, h) {
+  const top = fieldTop(h) + 40;
   return {
-    x: 40 + Math.random() * Math.max(1, w - 80),
-    y: h - 60 - Math.random() * 40,
-    row: i % 5,
-    phase: 'descend',
-    ticket: null,
-    targetX: 0,
-    hold: 0,
-    trail: []
+    x: 24 + Math.random() * Math.max(1, w - 48),
+    y: top + Math.random() * Math.max(1, h - top - 30),
+    taken: false
   };
 }
 
-function syncCouriers() {
+function syncField() {
   const { w, h } = stageSize();
-  while (live.couriers.length < live.courierCount) live.couriers.push(makeCourier(live.couriers.length, w, h));
+  while (live.couriers.length < live.courierCount) {
+    live.couriers.push({
+      x: 24 + Math.random() * Math.max(1, w - 48),
+      y: fieldTop(h) + Math.random() * Math.max(1, h - fieldTop(h) - 20),
+      vx: 0, vy: 0,
+      phase: 'seek', ticket: null, pkg: null,
+      // Own drop spot inside the bin: converging on one point makes the
+      // separation force fight the goal and nobody ever arrives.
+      bias: (Math.random() - 0.5),
+      trail: [], avoiding: false
+    });
+  }
+  live.couriers.slice(live.courierCount).forEach(c => { if (c.pkg) c.pkg.taken = false; });
   live.couriers.length = live.courierCount;
+
+  // Idle couriers stand still and clog the field, so keep packages ahead of them.
+  live.packageCount = Math.max(60, live.courierCount * 2);
+  while (live.packages.length < live.packageCount) live.packages.push(spawnPackage(w, h));
+  live.packages.length = live.packageCount;
 }
 
-/** Batch whatever has been picked up and send it. */
 function dispatchQueued() {
   if (!live.queued.length) return;
   const group = live.queued.splice(0, live.batch);
@@ -696,210 +819,156 @@ function dispatchQueued() {
       t.label = r.predicted;
       t.correct = r.correct;
       t.confidence = r.confidence;
+      t.urgency = r.urgency;
+      t.escalate = r.escalate;
       t.resolved = true;
       t.resolvedAt = performance.now();
+      live.judgments += 3;
+      if (typeof r.escalate === 'number' && r.escalate >= 0.5) live.escalated++;
     });
   }).catch(() => {
     live.inFlight--;
-    // Release the couriers rather than holding them forever on a failed call.
     group.forEach(t => { t.label = null; t.correct = false; t.resolved = true; t.failed = true; });
     setStatus('Live run: a request failed. Check the proxy.', true);
   });
 }
 
+function nearestPackage(c) {
+  let best = null, bestD = Infinity;
+  for (const p of live.packages) {
+    if (p.taken) continue;
+    const d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
 function stepLive(dt) {
   const { w, h } = stageSize();
-  const floorY = h - 46;
-  const binY = 64;
-  const speed = live.speed * 60 * dt;
-
+  const top = fieldTop(h);
+  const maxSpeed = live.speed * 60;
   const binX = i => (w / 3) * i + w / 6;
+  const now = performance.now();
 
   live.couriers.forEach(c => {
-    if (c.phase === 'descend') {
-      c.y += speed;
-      if (c.y >= floorY) { c.y = floorY; c.phase = 'pickup'; }
+    // --- pick a goal -----------------------------------------------------
+    let tx, ty;
 
-    } else if (c.phase === 'pickup') {
+    if (c.phase === 'seek') {
+      // Claim one package and keep it. Re-testing c.pkg.taken here would be
+      // true every frame - the courier set it itself - so each courier claimed
+      // a fresh package per frame and leaked the last one as permanently taken,
+      // draining the field in seconds.
+      if (!c.pkg) {
+        const p = nearestPackage(c);
+        if (p) { p.taken = true; c.pkg = p; }
+      }
+      if (c.pkg) { tx = c.pkg.x; ty = c.pkg.y; }
+      else { tx = c.x; ty = c.y; }
+
+    } else if (c.phase === 'carry') {
+      if (c.ticket.resolved && c.ticket.label) {
+        // Aim at the courier's own column within the bin's width, so a hundred
+        // deliveries do not all converge on one pixel.
+        const bi = Math.max(0, LABELS.indexOf(c.ticket.label));
+        const bw = w / 3;
+        tx = Math.max(bi * bw + 26, Math.min((bi + 1) * bw - 26, c.x));
+        ty = top - 26;
+      } else {
+        // No answer yet, so there is nowhere legitimate to go. Hold station in
+        // the staging band - this cloud IS the latency.
+        tx = w / 2 + (c.x - w / 2) * 0.9 + c.bias * 60;
+        ty = top + 34;
+      }
+    }
+
+    // --- steer: straight at the goal, pushed off neighbours --------------
+    let dx = tx - c.x, dy = ty - c.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    dx /= dist; dy /= dist;
+
+    let ax = 0, ay = 0, crowd = 0;
+    for (const o of live.couriers) {
+      if (o === c) continue;
+      const ox = c.x - o.x, oy = c.y - o.y;
+      const d2 = ox * ox + oy * oy;
+      if (d2 > AVOID_R * AVOID_R || d2 === 0) continue;
+      const d = Math.sqrt(d2);
+      // Closer neighbours push harder.
+      const push = (AVOID_R - d) / AVOID_R;
+      const nx = ox / d, ny = oy / d;
+      // Half straight away, half around - the tangential part is what lets two
+      // couriers on a head-on course slip past instead of stalling.
+      const side = (c.bias >= 0) ? 1 : -1;
+      ax += (nx * 0.5 + -ny * side * 0.9) * push;
+      ay += (ny * 0.5 + nx * side * 0.9) * push;
+      crowd++;
+      if (d < COURIER_R * 2) live.collisions++;
+    }
+
+    c.avoiding = crowd > 0;
+
+    let sx = dx + ax * AVOID_WEIGHT;
+    let sy = dy + ay * AVOID_WEIGHT;
+    const sl = Math.hypot(sx, sy) || 1;
+    sx /= sl; sy /= sl;
+
+    c.vx = sx * maxSpeed; c.vy = sy * maxSpeed;
+    c.x += c.vx * dt; c.y += c.vy * dt;
+
+    // Keep everyone on the field.
+    c.x = Math.max(12, Math.min(w - 12, c.x));
+    c.y = Math.max(top - 34, Math.min(h - 12, c.y));
+
+    // --- arrivals --------------------------------------------------------
+    if (c.phase === 'seek' && c.pkg && Math.hypot(c.pkg.x - c.x, c.pkg.y - c.y) < 12) {
       const ticket = { entry: nextEntry(), resolved: false, label: null };
       c.ticket = ticket;
       live.queued.push(ticket);
-      c.phase = 'ascend';
+      const i = live.packages.indexOf(c.pkg);
+      if (i >= 0) live.packages[i] = spawnPackage(w, h);
+      c.pkg = null;
+      c.phase = 'carry';
 
-    } else if (c.phase === 'ascend') {
-      c.y -= speed;
-      // Five staggered rows: a hundred held couriers on one line is a smear,
-      // and the queue length is the thing an audience should be able to read.
-      const stop = binY + 66 + c.row * 15;
-      if (c.y <= stop) {
-        c.y = stop;
-        c.phase = c.ticket.resolved ? 'deliver' : 'hold';
-      }
-
-    } else if (c.phase === 'hold') {
-      // Waiting on the model. Nothing the speed slider can do about it.
-      c.hold += dt;
-      if (c.ticket.resolved) c.phase = 'deliver';
-
-    } else if (c.phase === 'deliver') {
+    } else if (c.phase === 'carry' && c.ticket.resolved && c.ticket.label && c.y <= top - 18) {
       const idx = Math.max(0, LABELS.indexOf(c.ticket.label));
-      c.targetX = binX(idx);
-      const dx = c.targetX - c.x;
-      if (Math.abs(dx) <= speed) {
-        c.x = c.targetX;
-        if (!c.ticket.failed) {
-          live.sorted++;
-          if (c.ticket.correct) live.correct++;
-          live.recent.push(performance.now());
-          live.binCounts[idx]++;
-          live.flashes.push({ x: c.x, y: c.y, t: performance.now(), idx, ok: c.ticket.correct });
-        }
-        c.ticket = null; c.hold = 0; c.phase = 'descend';
-        // Fetch from a fresh spot next time. Without this a courier keeps the
-        // bin's x forever and the whole fleet collapses into three columns.
-        c.x = 20 + Math.random() * Math.max(1, w - 40);
-      } else {
-        c.x += Math.sign(dx) * speed;
+      if (!c.ticket.failed) {
+        live.sorted++;
+        if (c.ticket.correct) live.correct++;
+        live.recent.push(now);
+        live.binCounts[idx]++;
+        live.flashes.push({ x: c.x, y: c.y, t: now, idx, ok: c.ticket.correct });
       }
+      c.ticket = null;
+      c.phase = 'seek';
     }
+
+    c.trail.push({ x: c.x, y: c.y });
+    if (c.trail.length > 10) c.trail.shift();
   });
 
-  // Send a batch once it is full, or after a short wait so stragglers still go.
-  const now = performance.now();
+  for (let i = 0; i < live.couriers.length; i++) {
+    const a = live.couriers[i];
+    for (let j = i + 1; j < live.couriers.length; j++) {
+      const bb = live.couriers[j];
+      let ox = bb.x - a.x, oy = bb.y - a.y;
+      let d = Math.hypot(ox, oy);
+      if (d >= MIN_SEP) continue;
+      if (d === 0) { ox = Math.random() - 0.5; oy = Math.random() - 0.5; d = Math.hypot(ox, oy) || 1; }
+      const shift = (MIN_SEP - d) / 2;
+      const nx = ox / d, ny = oy / d;
+      a.x -= nx * shift; a.y -= ny * shift;
+      bb.x += nx * shift; bb.y += ny * shift;
+      live.collisions++;
+    }
+  }
+
   if (live.queued.length >= live.batch) { dispatchQueued(); live.dispatchAt = now; }
   else if (live.queued.length && now - live.dispatchAt > 250) { dispatchQueued(); live.dispatchAt = now; }
 
-  const cutoff = now - 5000;
-  while (live.recent.length && live.recent[0] < cutoff) live.recent.shift();
-
-  // A short trail per courier reads as motion even at high speed.
-  live.couriers.forEach(c => {
-    c.trail.push({ x: c.x, y: c.y });
-    if (c.trail.length > 8) c.trail.shift();
-  });
-
+  const cut5 = now - 5000;
+  while (live.recent.length && live.recent[0] < cut5) live.recent.shift();
   live.flashes = live.flashes.filter(f => now - f.t < 650);
-}
-
-function drawLive() {
-  const { w, h } = stageSize();
-  const css = getComputedStyle(document.documentElement);
-  const ink3 = css.getPropertyValue('--ink-3').trim();
-  const grid = css.getPropertyValue('--grid').trim();
-  const surface2 = css.getPropertyValue('--surface-2').trim();
-  const colors = LABELS.map(l => css.getPropertyValue('--' + l).trim());
-
-  sctx.clearRect(0, 0, w, h);
-  const binY = 64, floorY = h - 46;
-
-  // Bins
-  LABELS.forEach((l, i) => {
-    const bx = (w / 3) * i, bw = w / 3;
-    sctx.fillStyle = surface2;
-    sctx.strokeStyle = colors[i];
-    sctx.lineWidth = 1.5;
-    roundRect(bx + 10, 18, bw - 20, 46, 8);
-    sctx.fill(); sctx.stroke();
-    sctx.fillStyle = colors[i];
-    sctx.font = '600 13px ' + css.getPropertyValue('--ui');
-    sctx.textAlign = 'center';
-    sctx.fillText(NAME[l], bx + bw / 2, 40);
-    sctx.font = '700 15px ' + css.getPropertyValue('--mono');
-    sctx.fillText(live.binCounts[i], bx + bw / 2, 58);
-  });
-
-  // Inbox strip
-  sctx.strokeStyle = grid;
-  sctx.setLineDash([4, 5]);
-  sctx.beginPath(); sctx.moveTo(0, floorY + 16); sctx.lineTo(w, floorY + 16); sctx.stroke();
-  sctx.setLineDash([]);
-  sctx.fillStyle = ink3;
-  sctx.font = '10px ' + css.getPropertyValue('--mono');
-  sctx.textAlign = 'left';
-  sctx.fillText('unclassified inbox', 8, floorY + 32);
-
-  // The model itself: a chip that pulses while requests are open, so an
-  // audience can see that something off-screen is being asked, not computed here.
-  const busy = live.inFlight > 0;
-  const chipY = binY + 26;
-  sctx.textAlign = 'center';
-  sctx.font = '700 11px ' + css.getPropertyValue('--mono');
-  const chipText = busy ? `JEV \u00b7 ${live.inFlight} in flight` : 'JEV \u00b7 idle';
-  const cwid = sctx.measureText(chipText).width + 26;
-  sctx.globalAlpha = busy ? 0.55 + 0.45 * Math.sin(performance.now() / 150) : 0.35;
-  sctx.strokeStyle = busy ? css.getPropertyValue('--warning').trim() : ink3;
-  sctx.lineWidth = 1.5;
-  roundRect(w / 2 - cwid / 2, chipY - 12, cwid, 22, 11);
-  sctx.stroke();
-  sctx.globalAlpha = 1;
-  sctx.fillStyle = busy ? css.getPropertyValue('--warning').trim() : ink3;
-  sctx.fillText(chipText, w / 2, chipY + 3);
-
-  // Landing flashes
-  live.flashes.forEach(f => {
-    const age = (performance.now() - f.t) / 650;
-    sctx.globalAlpha = (1 - age) * 0.8;
-    sctx.strokeStyle = f.ok ? colors[f.idx] : css.getPropertyValue('--critical').trim();
-    sctx.lineWidth = 2.5;
-    sctx.beginPath();
-    sctx.arc(f.x, f.y, 6 + age * 26, 0, Math.PI * 2);
-    sctx.stroke();
-    sctx.globalAlpha = 1;
-  });
-
-  // Couriers
-  live.couriers.forEach(c => {
-    if (c.trail.length > 1) {
-      sctx.strokeStyle = c.ticket && c.ticket.resolved && c.ticket.label
-        ? colors[LABELS.indexOf(c.ticket.label)] : ink3;
-      sctx.lineWidth = 1.5;
-      sctx.globalAlpha = 0.18;
-      sctx.beginPath();
-      sctx.moveTo(c.trail[0].x, c.trail[0].y + 4);
-      for (let i = 1; i < c.trail.length; i++) sctx.lineTo(c.trail[i].x, c.trail[i].y + 4);
-      sctx.stroke();
-      sctx.globalAlpha = 1;
-    }
-    if (c.ticket) {
-      const resolved = c.ticket.resolved && c.ticket.label;
-      const col = resolved ? colors[LABELS.indexOf(c.ticket.label)] : ink3;
-      sctx.fillStyle = col;
-      sctx.globalAlpha = resolved ? 1 : 0.55;
-      roundRect(c.x - 6, c.y - 16, 12, 15, 3);
-      sctx.fill();
-      sctx.globalAlpha = 1;
-      if (!resolved) {
-        sctx.fillStyle = ink3;
-        sctx.font = 'bold 9px ' + css.getPropertyValue('--mono');
-        sctx.textAlign = 'center';
-        sctx.fillText('?', c.x, c.y - 5);
-      } else if (c.ticket.resolvedAt && performance.now() - c.ticket.resolvedAt < 380) {
-        // The decision arriving is the thing to watch, so it gets a beat.
-        const age = (performance.now() - c.ticket.resolvedAt) / 380;
-        sctx.globalAlpha = 1 - age;
-        sctx.strokeStyle = col;
-        sctx.lineWidth = 2;
-        sctx.beginPath();
-        sctx.arc(c.x, c.y - 8, 9 + age * 16, 0, Math.PI * 2);
-        sctx.stroke();
-        sctx.globalAlpha = 1;
-      }
-    }
-
-    // A held courier gets a ring so the waiting reads at a glance.
-    if (c.phase === 'hold') {
-      sctx.strokeStyle = css.getPropertyValue('--warning').trim();
-      sctx.lineWidth = 2;
-      sctx.globalAlpha = 0.4 + 0.4 * Math.sin(performance.now() / 180);
-      sctx.beginPath(); sctx.arc(c.x, c.y + 4, 13, 0, Math.PI * 2); sctx.stroke();
-      sctx.globalAlpha = 1;
-    }
-
-    sctx.fillStyle = css.getPropertyValue('--ink-2').trim();
-    sctx.beginPath();
-    sctx.arc(c.x, c.y + 4, 5, 0, Math.PI * 2);
-    sctx.fill();
-  });
 }
 
 function roundRect(x, y, w, h, r) {
@@ -912,15 +981,142 @@ function roundRect(x, y, w, h, r) {
   sctx.closePath();
 }
 
+function drawLive() {
+  const { w, h } = stageSize();
+  const css = getComputedStyle(document.documentElement);
+  const ink2 = css.getPropertyValue('--ink-2').trim();
+  const ink3 = css.getPropertyValue('--ink-3').trim();
+  const warn = css.getPropertyValue('--warning').trim();
+  const crit = css.getPropertyValue('--critical').trim();
+  const surface2 = css.getPropertyValue('--surface-2').trim();
+  const colors = LABELS.map(l => css.getPropertyValue('--' + l).trim());
+  const top = fieldTop(h);
+
+  sctx.clearRect(0, 0, w, h);
+
+  // Bins
+  LABELS.forEach((l, i) => {
+    const bx = (w / 3) * i, bw = w / 3;
+    sctx.fillStyle = surface2; sctx.strokeStyle = colors[i]; sctx.lineWidth = 1.5;
+    roundRect(bx + 10, 14, bw - 20, 46, 8);
+    sctx.fill(); sctx.stroke();
+    sctx.fillStyle = colors[i];
+    sctx.textAlign = 'center';
+    sctx.font = '600 13px ' + css.getPropertyValue('--ui');
+    sctx.fillText(NAME[l], bx + bw / 2, 36);
+    sctx.font = '700 15px ' + css.getPropertyValue('--mono');
+    sctx.fillText(live.binCounts[i], bx + bw / 2, 54);
+  });
+
+  // The model, off-screen: a chip that pulses while requests are open.
+  const busy = live.inFlight > 0;
+  sctx.textAlign = 'center';
+  sctx.font = '700 11px ' + css.getPropertyValue('--mono');
+  const chipText = busy ? 'JEV · ' + live.inFlight + ' in flight' : 'JEV · idle';
+  const cwid = sctx.measureText(chipText).width + 26;
+  sctx.globalAlpha = busy ? 0.55 + 0.45 * Math.sin(performance.now() / 150) : 0.35;
+  sctx.strokeStyle = busy ? warn : ink3; sctx.lineWidth = 1.5;
+  roundRect(w / 2 - cwid / 2, top - 32, cwid, 22, 11);
+  sctx.stroke();
+  sctx.globalAlpha = 1;
+  sctx.fillStyle = busy ? warn : ink3;
+  sctx.fillText(chipText, w / 2, top - 17);
+
+  // Packages waiting on the field
+  live.packages.forEach(p => {
+    if (p.taken) return;
+    sctx.fillStyle = ink3; sctx.globalAlpha = 0.4;
+    roundRect(p.x - 4, p.y - 5, 8, 10, 2);
+    sctx.fill(); sctx.globalAlpha = 1;
+  });
+
+  // Landing flashes
+  live.flashes.forEach(f => {
+    const age = (performance.now() - f.t) / 650;
+    sctx.globalAlpha = (1 - age) * 0.8;
+    sctx.strokeStyle = f.ok ? colors[f.idx] : crit;
+    sctx.lineWidth = 2.5;
+    sctx.beginPath(); sctx.arc(f.x, f.y, 6 + age * 26, 0, Math.PI * 2); sctx.stroke();
+    sctx.globalAlpha = 1;
+  });
+
+  live.couriers.forEach(c => {
+    const carrying = c.ticket;
+    const resolved = carrying && c.ticket.resolved && c.ticket.label;
+    const col = resolved ? colors[LABELS.indexOf(c.ticket.label)] : ink3;
+
+    if (c.trail.length > 1) {
+      sctx.strokeStyle = carrying ? col : ink3;
+      sctx.lineWidth = 1.5; sctx.globalAlpha = 0.16;
+      sctx.beginPath();
+      sctx.moveTo(c.trail[0].x, c.trail[0].y);
+      for (let i = 1; i < c.trail.length; i++) sctx.lineTo(c.trail[i].x, c.trail[i].y);
+      sctx.stroke(); sctx.globalAlpha = 1;
+    }
+
+    // Steering away from a neighbour right now.
+    if (c.avoiding) {
+      sctx.strokeStyle = warn; sctx.lineWidth = 1.5; sctx.globalAlpha = 0.5;
+      sctx.beginPath(); sctx.arc(c.x, c.y, COURIER_R + 5, 0, Math.PI * 2); sctx.stroke();
+      sctx.globalAlpha = 1;
+    }
+
+    if (carrying) {
+      // Urgency 0-3 widens the parcel, so a room can see severity at a glance.
+      const urg = resolved && typeof c.ticket.urgency === 'number' ? c.ticket.urgency : 0;
+      const pw = 10 + urg * 3;
+      sctx.fillStyle = col;
+      sctx.globalAlpha = resolved ? 1 : 0.6;
+      roundRect(c.x - pw / 2, c.y - 16, pw, 12, 2);
+      sctx.fill(); sctx.globalAlpha = 1;
+
+      if (resolved && typeof c.ticket.escalate === 'number' && c.ticket.escalate >= 0.5) {
+        // Needs a person: a diamond, not another colour.
+        sctx.fillStyle = warn;
+        sctx.beginPath();
+        sctx.moveTo(c.x + pw / 2 + 5, c.y - 10);
+        sctx.lineTo(c.x + pw / 2 + 9, c.y - 6);
+        sctx.lineTo(c.x + pw / 2 + 5, c.y - 2);
+        sctx.lineTo(c.x + pw / 2 + 1, c.y - 6);
+        sctx.closePath(); sctx.fill();
+      }
+      if (!resolved) {
+        sctx.fillStyle = ink3; sctx.textAlign = 'center';
+        sctx.font = 'bold 9px ' + css.getPropertyValue('--mono');
+        sctx.fillText('?', c.x, c.y - 7);
+      } else if (c.ticket.resolvedAt && performance.now() - c.ticket.resolvedAt < 380) {
+        const age = (performance.now() - c.ticket.resolvedAt) / 380;
+        sctx.globalAlpha = 1 - age; sctx.strokeStyle = col; sctx.lineWidth = 2;
+        sctx.beginPath(); sctx.arc(c.x, c.y - 10, 9 + age * 16, 0, Math.PI * 2); sctx.stroke();
+        sctx.globalAlpha = 1;
+      }
+    }
+
+    // Body, pointed the way it is heading.
+    const ang = Math.atan2(c.vy, c.vx);
+    sctx.save();
+    sctx.translate(c.x, c.y); sctx.rotate(ang);
+    sctx.fillStyle = ink2;
+    sctx.beginPath();
+    sctx.moveTo(COURIER_R, 0);
+    sctx.lineTo(-COURIER_R * 0.8, COURIER_R * 0.7);
+    sctx.lineTo(-COURIER_R * 0.8, -COURIER_R * 0.7);
+    sctx.closePath(); sctx.fill();
+    sctx.restore();
+  });
+}
+
 function updateLiveKpis() {
-  $('lWait').textContent = live.couriers.filter(c => c.phase === 'hold').length;
+  $('lWait').textContent = live.couriers.filter(c => c.ticket && !c.ticket.resolved).length;
   $('lFlight').textContent = live.inFlight;
   $('lRate').textContent = (live.recent.length / 5).toFixed(1);
   $('lLat').textContent = live.latencies.length
     ? fmtMs(live.latencies.reduce((a, b) => a + b, 0) / live.latencies.length) : '—';
   $('lSorted').textContent = live.sorted;
   $('lSortedSub').textContent = live.sorted
-    ? `${((live.correct / live.sorted) * 100).toFixed(0)}% matched the key` : ' ';
+    ? ((live.correct / live.sorted) * 100).toFixed(0) + '% matched the key' : ' ';
+  $('lJudg').textContent = live.judgments;
+  $('lEsc').textContent = live.escalated;
 }
 
 function frame(ts) {
@@ -944,20 +1140,20 @@ $('speed').addEventListener('input', e => {
 $('couriers').addEventListener('input', e => {
   live.courierCount = parseInt(e.target.value, 10);
   $('courierVal').textContent = live.courierCount;
-  syncCouriers();
+  syncField();
 });
 $('liveBatch').addEventListener('change', e => { live.batch = parseInt(e.target.value, 10); });
-
 $('liveFull').addEventListener('click', () => {
   const panel = $('liveStage');
   if (document.fullscreenElement) document.exitFullscreen();
   else if (panel.requestFullscreen) panel.requestFullscreen();
-  // Safari on iOS has no element fullscreen; the stage just stays inline there.
   if (!live.running) $('liveToggle').click();
 });
+addEventListener('resize', syncField);
 
-syncCouriers();
+syncField();
 requestAnimationFrame(frame);
+
 
 /* --- boot -------------------------------------------------------------- */
 

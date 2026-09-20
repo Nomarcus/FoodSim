@@ -18,7 +18,8 @@ const DEFAULT_MODEL = process.env.TYPESAFE_DEFAULT_MODEL || 'jev-latest';
 // This proxy is deployed publicly with a key attached, so anyone who finds the
 // URL can spend tokens through it. These caps bound what a single call can cost.
 // See the README - use a spend limit on the key as the real backstop.
-const MAX_QUESTIONS = 16;
+// Three judgments per ticket at a batch of 16 is 48 questions.
+const MAX_QUESTIONS = 64;
 const MAX_BODY_BYTES = 64 * 1024;
 const TIMEOUT_MS = 30000;
 
