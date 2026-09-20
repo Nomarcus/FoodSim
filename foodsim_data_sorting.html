@@ -105,6 +105,38 @@
       margin-bottom: 8px;
     }
 
+    .ts-warn {
+      font-size: 10px;
+      line-height: 1.45;
+      color: #ffc98a;
+      background: rgba(255, 153, 0, 0.08);
+      border: 1px solid rgba(255, 153, 0, 0.3);
+      border-radius: 6px;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+    }
+    .ts-status {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+      min-height: 13px;
+      word-break: break-word;
+    }
+    .ts-status.is-error { color: var(--accent-bad); }
+    .ts-status.is-ready { color: var(--accent-ok); }
+    .ts-btn {
+      width: 100%;
+      padding: 6px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-dim);
+      background: rgba(148,163,209,.12);
+      border: 1px solid rgba(148,163,209,.3);
+    }
+    .ts-btn:hover { color: var(--text-main); background: rgba(148,163,209,.2); }
+
     .panel-image {
       border-radius: 10px;
       overflow: hidden;
@@ -361,6 +393,31 @@
       </div>
 
       <div class="control-block">
+        <div class="control-title">Ticket Source</div>
+        <div class="control-group">
+          <label>Where categories come from</label>
+          <select id="slTicketSource">
+            <option value="synthetic">Synthetic (random category)</option>
+            <option value="typesafe">TypeSafe Jev (classify real text)</option>
+          </select>
+        </div>
+        <div id="typesafePanel" style="display:none">
+          <div class="control-group">
+            <label title="Stored in this browser's localStorage">TypeSafe API Key</label>
+            <input type="password" id="inpTypeSafeKey" placeholder="sk-..." autocomplete="off"
+                   style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid rgba(148,163,209,.35);background:rgba(5,8,22,.8);color:var(--text-main);font-family:var(--font-mono);font-size:12px;">
+          </div>
+          <div class="ts-warn">
+            The key is used directly from the browser and is readable by anyone
+            who opens this page. Use it only on a local copy &mdash; never on a
+            hosted deployment.
+          </div>
+          <div class="ts-status" id="typesafeStatus">TypeSafe off</div>
+          <button id="btnTypeSafeClear" class="ts-btn">Clear cached labels</button>
+        </div>
+      </div>
+
+      <div class="control-block">
         <div class="control-title">Goal Zones</div>
         <div class="control-group">
           <label>Goal Size: <span id="valGoalScale">100%</span></label>
@@ -569,6 +626,7 @@
   </div>
 </main>
 
+<script src="typesafe-tickets.js"></script>
 <script>
 // --- CONFIGURATION OBJECT (Mutable) ---
 const CFG = {
@@ -687,6 +745,16 @@ let mouse = { x:0, y:0, down:false, dragAgent:null, dragNest: false, dragZone: n
 let zoneHighlight = null; 
 const ROLLING_ACCURACY_WINDOW = 500;
 const rollingResults = [];
+
+// --- TYPESAFE TICKET SOURCE ---
+// When active, each ticket carries real natural-language text and its category
+// is the label Jev returned for that text. That label is the ground truth the
+// agents are scored against, so the population learns to route genuinely
+// classified tickets instead of randomly coloured dots.
+const ticketLabeler = new TypeSafeTickets.TicketLabeler({
+  labels: CFG.categories.map(c => c.id)
+});
+let ticketSource = 'synthetic';
 
 // FPS Counter Variables
 let lastFrameTime = 0;
@@ -1226,7 +1294,28 @@ class Ticket {
 
     respawn() {
         this.id = Math.random();
-        this.typeIdx = getBalancedCategoryIndex(this);
+
+        // Prefer a Jev-labelled ticket when one is ready. The pool is filled
+        // asynchronously, so an empty pool simply falls back to a synthetic
+        // category rather than stalling the simulation.
+        let labelled = null;
+        if (ticketSource === 'typesafe') labelled = ticketLabeler.take();
+
+        if (labelled) {
+            const idx = CFG.categories.findIndex(c => c.id === labelled.label);
+            this.typeIdx = idx >= 0 ? idx : getBalancedCategoryIndex(this);
+            this.text = labelled.text;
+            this.confidence = labelled.confidence;
+            this.probabilities = labelled.probabilities;
+            this.labelSource = 'typesafe';
+        } else {
+            this.typeIdx = getBalancedCategoryIndex(this);
+            this.text = null;
+            this.confidence = null;
+            this.probabilities = null;
+            this.labelSource = 'synthetic';
+        }
+
         this.def = CFG.categories[this.typeIdx];
         const spawn = getTicketSpawnPoint(this.typeIdx, this.spawnIndex, CFG.ticketCount);
         this.x = spawn.x;
@@ -2233,10 +2322,62 @@ function updateHoverTip(e) {
             Energy: <span style="color:${hoveredAgent.energy > 0.3 ? '#0f0' : '#ff9900'}">${(hoveredAgent.energy * 100).toFixed(0)}%</span><br>
             Speed: ${hoveredAgent.vel.toFixed(1)} / ${CFG.maxSpeed}<br>
             Carrying: ${hoveredAgent.carrying ? hoveredAgent.carrying.def.label : 'None'}
+            ${hoveredAgent.carrying && hoveredAgent.carrying.text ? `<br>${describeTicket(hoveredAgent.carrying)}` : ''}
+        `;
+        return;
+    }
+
+    let hoveredTicket = null;
+    for (const t of tickets) {
+        if (t && t.text && dist(t.x, t.y, x, y) < 12) {
+            hoveredTicket = t;
+            break;
+        }
+    }
+
+    if (hoveredTicket) {
+        hoverTip.style.opacity = 1;
+        hoverTip.style.left = `${e.clientX}px`;
+        hoverTip.style.top = `${e.clientY}px`;
+        hoverTip.innerHTML = `
+            <strong style="color:${hoveredTicket.def.color}">${hoveredTicket.def.label}</strong><br>
+            ${describeTicket(hoveredTicket)}
         `;
     } else {
         hoverTip.style.opacity = 0;
     }
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
+}
+
+/** Ticket text plus the judgment Jev returned for it. */
+function describeTicket(ticket) {
+    if (!ticket || !ticket.text) return '';
+
+    let out = `<span style="opacity:.85">${escapeHtml(ticket.text)}</span>`;
+
+    if (typeof ticket.confidence === 'number') {
+        // Confidence summarises how concentrated the distribution is, not
+        // whether the label is correct - low values are the interesting ones.
+        const pct = (ticket.confidence * 100).toFixed(0);
+        const colour = ticket.confidence >= 0.7 ? 'var(--accent-ok)'
+                     : ticket.confidence >= 0.45 ? '#ffc98a'
+                     : 'var(--accent-bad)';
+        out += `<br>Confidence: <span style="color:${colour}">${pct}%</span>`;
+    }
+
+    if (ticket.probabilities) {
+        const parts = Object.keys(ticket.probabilities)
+            .map(k => `${escapeHtml(k)} ${(ticket.probabilities[k] * 100).toFixed(0)}%`)
+            .join(' &middot; ');
+        out += `<br><span style="opacity:.6">${parts}</span>`;
+    }
+
+    return out;
 }
 
 function buildGoalZones() {
@@ -2964,6 +3105,62 @@ document.getElementById('slTicketGrouping').onchange = (e) => {
     CFG.ticketSpawn.grouping = e.target.value;
     tickets.forEach(t => t.respawn());
 };
+
+// --- TYPESAFE CONTROLS ---
+const typesafePanel = document.getElementById('typesafePanel');
+const typesafeStatus = document.getElementById('typesafeStatus');
+const typesafeKeyInput = document.getElementById('inpTypeSafeKey');
+
+function renderTypeSafeStatus() {
+    typesafeStatus.innerText = ticketLabeler.describeStatus();
+    typesafeStatus.classList.toggle('is-error', ticketLabeler.status === 'error');
+    typesafeStatus.classList.toggle('is-ready', ticketLabeler.status === 'ready');
+}
+
+ticketLabeler.onChange(renderTypeSafeStatus);
+
+// As labelled tickets arrive, swap them in for the synthetic ones already on
+// the board so switching source takes visible effect instead of waiting for
+// every ticket to be collected once.
+let adoptingLabels = false;
+ticketLabeler.onChange(() => {
+    if (ticketSource !== 'typesafe' || adoptingLabels) return;
+    // respawn() -> take() -> refill() can emit again; guard against re-entry.
+    adoptingLabels = true;
+    try {
+        let budget = Math.min(ticketLabeler.poolSize(), 12);
+        for (const t of tickets) {
+            if (budget <= 0) break;
+            if (t.labelSource === 'typesafe') continue;
+            t.respawn();
+            budget--;
+        }
+    } finally {
+        adoptingLabels = false;
+    }
+});
+typesafeKeyInput.value = ticketLabeler.hasApiKey() ? ticketLabeler.apiKey : '';
+
+document.getElementById('slTicketSource').onchange = (e) => {
+    ticketSource = e.target.value;
+    typesafePanel.style.display = ticketSource === 'typesafe' ? 'block' : 'none';
+    ticketLabeler.setEnabled(ticketSource === 'typesafe');
+    // Existing tickets keep their current category until they are collected and
+    // respawned, so the switch takes effect as the pool fills.
+    renderTypeSafeStatus();
+};
+
+typesafeKeyInput.onchange = (e) => {
+    ticketLabeler.setApiKey(e.target.value);
+    if (ticketSource === 'typesafe') ticketLabeler.setEnabled(true);
+};
+
+document.getElementById('btnTypeSafeClear').onclick = () => {
+    ticketLabeler.clearCache();
+    if (ticketSource === 'typesafe') ticketLabeler.refill();
+};
+
+renderTypeSafeStatus();
 
 document.getElementById('slGoalScale').oninput = (e) => {
     CFG.goalScale = parseInt(e.target.value) / 100;
