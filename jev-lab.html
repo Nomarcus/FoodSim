@@ -115,6 +115,7 @@
     width: 14px; height: 14px; border-radius: 3px; background: var(--grid);
     display: block; transition: background .18s;
   }
+  .cells i:hover { outline: 2px solid var(--ink-1); outline-offset: 1px; }
   .cells i.ok { background: var(--good); }
   .cells i.no { background: var(--critical); }
   canvas#dupStage {
@@ -258,6 +259,8 @@
           <option value="192">192</option>
           <option value="384">384</option>
           <option value="768">768</option>
+          <option value="1200">1200</option>
+          <option value="2000">2000</option>
         </select>
       </div>
     </div>
@@ -288,7 +291,10 @@
     <div class="note" id="raceNote">
       Both lanes get the same tickets in the same order. The rules finish before you
       can see them move, which is the honest part of the comparison — and then the
-      red squares are the price of that.
+      red squares are the price of that. <strong>Hover any square</strong> to read the
+      ticket, what that lane called it, and what the key says.
+      Past a few hundred tickets the corpus repeats, so accuracy cannot move — only
+      the timings do — and the token bill is real: roughly 300 tokens a ticket.
     </div>
   </div>
 
@@ -313,6 +319,7 @@
       <div class="kpi"><div class="label">Wall clock</div><div class="value" id="dupTime">—</div><div class="sub">to judge them all</div></div>
       <div class="kpi"><div class="label">Pairs correct</div><div class="value" id="dupAcc">—</div><div class="sub" id="dupAccSub">against the grouping key</div></div>
     </div>
+    <div id="dupGroups" class="scroll" style="max-height:340px; margin-top:12px; display:none"></div>
     <div class="note">
       Real groups of three, mixed with unrelated singletons. Each pair is one
       <strong>noul</strong> — "are these the same underlying problem?" — so the
@@ -500,7 +507,24 @@ function buildPayload(entries) {
   return { state, questions };
 }
 
-async function sendBatch(entries) {
+/** Run tasks with at most `limit` in flight. 250 parallel fetches is not a
+ *  benchmark, it is a queue the browser and the rate limiter both fight over. */
+async function withLimit(tasks, limit, onDone) {
+  const results = new Array(tasks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      const i = next++;
+      results[i] = await tasks[i]();
+      if (onDone) onDone(results[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function sendBatch(entries, attempt) {
+  attempt = attempt || 0;
   const started = performance.now();
   const res = await fetch(PROXY, {
     method: 'POST',
@@ -511,6 +535,14 @@ async function sendBatch(entries) {
   const latency = performance.now() - started;
 
   if (!res.ok) {
+    // A long run will meet the rate limiter. Backing off is the difference
+    // between a benchmark and a wall of failures.
+    const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+    if (retryable && attempt < 3) {
+      const wait = 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25);
+      await new Promise(r => setTimeout(r, wait));
+      return sendBatch(entries, attempt + 1);
+    }
     let detail = text.slice(0, 200);
     try { detail = (JSON.parse(text).error) || detail; } catch (e) { /* keep raw */ }
     const err = new Error('HTTP ' + res.status + ': ' + detail);
@@ -1340,24 +1372,64 @@ requestAnimationFrame(frame);
  * the eye can follow, which is the honest half of the comparison; the red
  * squares left behind are the other half.
  */
-function raceCells(el, n) {
+let raceTickets = [];   // what each cell is, for the hover
+let raceDetail = [];    // Jev's answer per cell
+let raceKwDetail = [];  // the baseline's, same order
+
+/**
+ * Cells carry their index so the whole row can share one listener - 2000 of
+ * them with a listener each is a lot of handlers for no benefit.
+ */
+function raceCells(el, n, lane) {
   el.innerHTML = '';
   const cells = [];
   for (let i = 0; i < n; i++) {
     const c = document.createElement('i');
+    c.dataset.i = i;
+    c.dataset.lane = lane;
     el.appendChild(c);
     cells.push(c);
   }
   return cells;
 }
 
+function raceTip(e) {
+  const cell = e.target.closest('i[data-i]');
+  if (!cell) { hideTip(); return; }
+  const i = +cell.dataset.i;
+  const t = raceTickets[i];
+  if (!t) { hideTip(); return; }
+
+  const jev = cell.dataset.lane === 'jev';
+  const d = jev ? raceDetail[i] : raceKwDetail[i];
+  const chose = d ? d.predicted : null;
+  const line = !d
+    ? '<span style="opacity:.7">not decided yet</span>'
+    : (d.correct
+        ? `<span style="color:var(--good)">\u2713 ${NAME[chose]}</span>`
+        : `<span style="color:var(--critical)">\u2717 said ${NAME[chose] || '\u2014'}</span>` +
+          `<br>key says <span style="color:var(--good)">${NAME[t.gold]}</span>`);
+
+  showTip(e, `<strong>#${i + 1}</strong> \u00b7 ${jev ? 'Jev' : 'keyword rules'}<br>` +
+             `${escapeHtml(t.text)}<br>${line}`);
+}
+
+['raceCellsKw', 'raceCellsJev'].forEach(id => {
+  const el = $(id);
+  el.addEventListener('mousemove', raceTip);
+  el.addEventListener('mouseleave', hideTip);
+});
+
 async function runRace() {
   const count = parseInt($('raceCount').value, 10);
   const tickets = [];
   for (let i = 0; i < count; i++) tickets.push(CORPUS[i % CORPUS.length]);
 
-  const kwCells = raceCells($('raceCellsKw'), count);
-  const jevCells = raceCells($('raceCellsJev'), count);
+  raceTickets = tickets;
+  raceDetail = new Array(count);
+  raceKwDetail = new Array(count);
+  const kwCells = raceCells($('raceCellsKw'), count, 'kw');
+  const jevCells = raceCells($('raceCellsJev'), count, 'jev');
   $('raceTimeKw').textContent = '—';
   $('raceTimeJev').textContent = '—';
   $('raceScoreKw').textContent = '';
@@ -1366,9 +1438,13 @@ async function runRace() {
 
   // Keyword lane: local, so it is done essentially before it starts.
   const kwStart = performance.now();
-  const kwResults = tickets.map(t => TypeSafeTickets.classifyKeyword(t.text).label === t.gold);
+  const kwPred = tickets.map(t => TypeSafeTickets.classifyKeyword(t.text).label);
   const kwWall = performance.now() - kwStart;
-  kwResults.forEach((ok, i) => kwCells[i].className = ok ? 'ok' : 'no');
+  const kwResults = kwPred.map((label, i) => label === tickets[i].gold);
+  kwResults.forEach((ok, i) => {
+    kwCells[i].className = ok ? 'ok' : 'no';
+    raceKwDetail[i] = { predicted: kwPred[i], correct: ok };
+  });
   const kwCorrect = kwResults.filter(Boolean).length;
   $('raceTimeKw').textContent = kwWall < 1 ? '<1 ms' : fmtMs(kwWall);
   $('raceScoreKw').textContent = `${kwCorrect}/${count} correct`;
@@ -1380,14 +1456,17 @@ async function runRace() {
 
   const jevStart = performance.now();
   let jevCorrect = 0;
+  raceDetail = new Array(count);
   try {
-    await Promise.all(batches.map(b => sendBatch(b.items).then(packet => {
+    await withLimit(batches.map(b => () => sendBatch(b.items).then(packet => {
       packet.results.forEach((r, k) => {
-        jevCells[b.from + k].className = r.correct ? 'ok' : 'no';
+        const idx = b.from + k;
+        jevCells[idx].className = r.correct ? 'ok' : 'no';
+        raceDetail[idx] = r;
         if (r.correct) jevCorrect++;
       });
       $('raceTimeJev').textContent = fmtMs(performance.now() - jevStart);
-    })));
+    })), 12);
   } catch (err) {
     $('raceTimeJev').textContent = 'failed';
     setStatus('Race: a request failed. Check the proxy.', true);
@@ -1410,8 +1489,8 @@ async function runRace() {
 }
 
 $('raceRun').addEventListener('click', runRace);
-raceCells($('raceCellsKw'), 48);
-raceCells($('raceCellsJev'), 48);
+raceCells($('raceCellsKw'), 48, 'kw');
+raceCells($('raceCellsJev'), 48, 'jev');
 
 /* --- duplicates ---------------------------------------------------------
  *
@@ -1502,14 +1581,23 @@ async function runDuplicates() {
         }
       };
     });
-    return fetch(PROXY, {
+    // Twenty requests at once will meet the rate limiter, same as the race.
+    // Without this the whole clustering run dies on one 429.
+    const post = (attempt) => fetch(PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ state, questions })
     }).then(res => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    }).then(data => chunk.map((p, k) => {
+      if (res.ok) return res.json();
+      const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+      if (retryable && attempt < 3) {
+        const wait = 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25);
+        return new Promise(r => setTimeout(r, wait)).then(() => post(attempt + 1));
+      }
+      throw new Error('HTTP ' + res.status);
+    });
+
+    return post(0).then(data => chunk.map((p, k) => {
       const a = (data.answers || {})['pair_' + k];
       return { ...p, noul: a ? a.noul : null, same: a ? a.noul >= 0.5 : false };
     }));
@@ -1517,7 +1605,7 @@ async function runDuplicates() {
 
   let judged;
   try {
-    judged = (await Promise.all(chunks.map(ask))).flat();
+    judged = (await withLimit(chunks.map(c => () => ask(c)), 8)).flat();
   } catch (err) {
     $('dupTime').textContent = 'failed';
     setStatus('Duplicates: a request failed. Check the proxy.', true);
@@ -1560,6 +1648,39 @@ async function runDuplicates() {
     });
   });
   dup.links = judged.filter(p => p.same);
+
+  // Write the clusters out in full. The canvas has to truncate to stay legible,
+  // and a truncated label cannot be used to prove anything to a room.
+  const byCluster = new Map();
+  dup.nodes.forEach((n, i) => {
+    const k = roots[i];
+    if (!byCluster.has(k)) byCluster.set(k, []);
+    byCluster.get(k).push(n);
+  });
+
+  const blocks = [...byCluster.values()].map(members => {
+    const keys = [...new Set(members.map(m => m.group))];
+    const goldSize = DUPS.filter(d => d.group === keys[0]).length;
+    const exact = keys.length === 1 && members.length === goldSize;
+    const verdict = exact
+      ? `<span style="color:var(--good)">\u2713 matches the key</span>`
+      : keys.length > 1
+        ? `<span style="color:var(--critical)">\u2717 merges ${keys.length} different groups</span>`
+        : `<span style="color:var(--critical)">\u2717 split \u2014 the key puts ${goldSize} together</span>`;
+    return `<div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--ink-3);margin-bottom:4px">
+        ${members.length} ticket${members.length === 1 ? '' : 's'} \u00b7 ${verdict}
+      </div>
+      ${members.map(m => `<div style="font-size:12px;padding:3px 0 3px 12px;border-left:2px solid ${
+        COLOR[LABELS[m.cluster % LABELS.length]] || 'var(--ink-3)'}">${escapeHtml(m.text)}</div>`).join('')}
+    </div>`;
+  });
+
+  const box = $('dupGroups');
+  box.style.display = 'block';
+  box.innerHTML = `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3);margin-bottom:8px">
+      Groups the model formed \u2014 full text
+    </div>` + blocks.join('');
 
   $('dupRun').disabled = false;
 }
@@ -1611,13 +1732,25 @@ function dupFrame() {
   requestAnimationFrame(dupFrame);
 }
 
+dupStage.addEventListener('mousemove', e => {
+  const r = dupStage.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const hit = dup.nodes.find(n => Math.hypot(n.x - mx, n.y - my) < 14);
+  if (!hit) { hideTip(); dupStage.style.cursor = 'default'; return; }
+  dupStage.style.cursor = 'pointer';
+  showTip(e, `${escapeHtml(hit.text)}<br><span style="opacity:.6">key group: ${escapeHtml(hit.group)}</span>`);
+});
+dupStage.addEventListener('mouseleave', hideTip);
+
 $('dupRun').addEventListener('click', runDuplicates);
 $('dupCount').addEventListener('change', () => {
+  $('dupGroups').style.display = 'none';
   dupScatter();
   ['dupPairs', 'dupReq', 'dupTime', 'dupAcc'].forEach(id => $(id).textContent = '—');
   $('dupAcc').style.color = '';
 });
 $('dupReset').addEventListener('click', () => {
+  $('dupGroups').style.display = 'none';
   dupScatter();
   ['dupPairs', 'dupReq', 'dupTime', 'dupAcc'].forEach(id => $(id).textContent = '—');
   $('dupAcc').style.color = '';
