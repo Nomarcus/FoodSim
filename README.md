@@ -45,6 +45,35 @@ Hovering a ticket shows its text, Jev's confidence, and the full probability
 spread across the three categories — useful for seeing whether agents mis-sort
 the tickets the model was least sure about.
 
+### Comparing classifiers honestly
+
+The corpus in `typesafe-tickets.js` carries a hand-written **gold label** per
+ticket, following the ITIL distinction (incident = broken now, request = routine
+provision, problem = the cause behind repeated failures). Three things are kept
+strictly apart:
+
+| | |
+|---|---|
+| **gold** | the correct category. The simulation grades against this. No classifier ever sees it, and it is never sent to the API. |
+| **predicted** | what the selected classifier thought. This is what the agent is told it is carrying. |
+| **confidence** | how sure the classifier was, as a distribution. |
+
+When a classifier is wrong, the agent is misled — it carries the ticket to the
+zone it was told, and the colony takes the penalty. Classification quality
+therefore shows up directly in the simulation's score.
+
+Two classifiers can be run on identical tickets against an identical answer key:
+
+- **Keyword rules** — a hand-written no-AI baseline. Generic ITIL-ish cues only,
+  with no phrases lifted from the corpus. It scores about **81%**: routine
+  requests are easy to spot from polite phrasing, but it cannot tell a recurring
+  fault from a one-off failure, so it loses most of its points on `problem`.
+- **TypeSafe Jev** — the real System One API.
+
+The **Classifier vs answer key** panel tallies both live, so switching source
+compares them on the same stream. Hovering a ticket shows whether the classifier
+got it right and what the truth was.
+
 ### Probability inputs
 
 With **Feed probabilities to network** enabled (default), the three carried-ticket

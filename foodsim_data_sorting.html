@@ -133,6 +133,25 @@
       padding: 6px 8px;
       margin-bottom: 8px;
     }
+    .ts-board {
+      background: rgba(5,8,22,.6);
+      border: 1px solid rgba(148,163,209,.28);
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+    .ts-board-title {
+      font-size: 9px; text-transform: uppercase; letter-spacing: .6px;
+      color: var(--text-dim); margin-bottom: 6px;
+    }
+    .ts-board-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; padding: 2px 0; font-family: var(--font-mono);
+    }
+    .ts-board-row span:first-child { color: var(--text-dim); }
+    .ts-board-row span:last-child { color: var(--text-main); font-weight: 600; }
+    .ts-board-row.is-active span:first-child { color: var(--accent); }
+    .ts-board-note { font-size: 9px; color: var(--text-dim); margin-top: 6px; line-height: 1.4; }
     .ts-status.is-error { color: var(--accent-bad); }
     .ts-status.is-ready { color: var(--accent-ok); }
     .ts-btn {
@@ -408,8 +427,15 @@
           <label>Where categories come from</label>
           <select id="slTicketSource">
             <option value="synthetic">Synthetic (random category)</option>
-            <option value="typesafe">TypeSafe Jev (classify real text)</option>
+            <option value="keyword">Keyword rules (no AI baseline)</option>
+            <option value="typesafe">TypeSafe Jev (System One)</option>
           </select>
+        </div>
+        <div id="scoreboard" class="ts-board" style="display:none">
+          <div class="ts-board-title">Classifier vs answer key</div>
+          <div class="ts-board-row"><span>Keyword rules</span><span id="scoreKeyword">&mdash;</span></div>
+          <div class="ts-board-row"><span>TypeSafe Jev</span><span id="scoreJev">&mdash;</span></div>
+          <div class="ts-board-note" id="scoreNote">Switch source to compare on the same tickets.</div>
         </div>
         <div id="typesafePanel" style="display:none">
           <div id="typesafeProxyNote" class="ts-proxy" style="display:none">
@@ -1326,7 +1352,11 @@ function carriedCategorySignal(ticket) {
         // which reads as "carrying nothing" - fall through to the one-hot.
         if (total > 0) return raw.map(p => p / total);
     }
-    return CFG.categories.map(cat => (ticket && ticket.def.id === cat.id) ? 1 : 0);
+    // One-hot of what the CLASSIFIER said, not of the ticket's true category.
+    // Reading def.id here would leak the answer key into the network and make
+    // every comparison meaningless.
+    const claimed = (ticket && ticket.predicted) || (ticket && ticket.def.id) || null;
+    return CFG.categories.map(cat => (claimed === cat.id) ? 1 : 0);
 }
 
 function getBalancedCategoryIndex(excludeTicket = null) {
@@ -1366,15 +1396,25 @@ class Ticket {
         if (ticketSource === 'typesafe') labelled = ticketLabeler.take();
 
         if (labelled) {
-            const idx = CFG.categories.findIndex(c => c.id === labelled.label);
-            this.typeIdx = idx >= 0 ? idx : getBalancedCategoryIndex(this);
+            // The ticket's true category is the hand-written gold label, never
+            // the classifier's answer - otherwise the classifier would be graded
+            // against itself. The agent is told `predicted` instead, so a
+            // misclassification genuinely misleads it and costs the colony.
+            const goldIdx = CFG.categories.findIndex(c => c.id === labelled.gold);
+            this.typeIdx = goldIdx >= 0 ? goldIdx : getBalancedCategoryIndex(this);
             this.text = labelled.text;
+            this.predicted = labelled.label;
+            this.classifierCorrect = labelled.correct;
+            this.classifier = labelled.classifier;
             this.confidence = labelled.confidence;
             this.probabilities = labelled.probabilities;
-            this.labelSource = 'typesafe';
+            this.labelSource = 'classified';
         } else {
             this.typeIdx = getBalancedCategoryIndex(this);
             this.text = null;
+            this.predicted = null;
+            this.classifierCorrect = null;
+            this.classifier = null;
             this.confidence = null;
             this.probabilities = null;
             this.labelSource = 'synthetic';
@@ -2422,6 +2462,14 @@ function describeTicket(ticket) {
 
     let out = `<span style="opacity:.85">${escapeHtml(ticket.text)}</span>`;
 
+    if (ticket.predicted) {
+        const name = id => (CFG.categories.find(c => c.id === id) || {}).label || id;
+        out += ticket.classifierCorrect
+            ? `<br>Classified <span style="color:var(--accent-ok)">${escapeHtml(name(ticket.predicted))}</span> ✓`
+            : `<br>Classified <span style="color:var(--accent-bad)">${escapeHtml(name(ticket.predicted))}</span>` +
+              ` ✗ &mdash; truth is <span style="color:var(--accent-ok)">${escapeHtml(ticket.def.label)}</span>`;
+    }
+
     if (typeof ticket.confidence === 'number') {
         // Confidence summarises how concentrated the distribution is, not
         // whether the label is correct - low values are the interesting ones.
@@ -3173,6 +3221,36 @@ const typesafePanel = document.getElementById('typesafePanel');
 const typesafeStatus = document.getElementById('typesafeStatus');
 const typesafeKeyInput = document.getElementById('inpTypeSafeKey');
 
+const scoreboard = document.getElementById('scoreboard');
+const scoreKeywordEl = document.getElementById('scoreKeyword');
+const scoreJevEl = document.getElementById('scoreJev');
+const scoreNoteEl = document.getElementById('scoreNote');
+
+function formatScore(which) {
+    const s = ticketLabeler.scores[which];
+    if (!s || !s.graded) return '—';
+    return `${((s.correct / s.graded) * 100).toFixed(0)}%  (${s.correct}/${s.graded})`;
+}
+
+function renderScoreboard() {
+    scoreKeywordEl.innerText = formatScore('keyword');
+    scoreJevEl.innerText = formatScore('jev');
+
+    scoreKeywordEl.parentElement.classList.toggle('is-active', ticketLabeler.classifier === 'keyword');
+    scoreJevEl.parentElement.classList.toggle('is-active', ticketLabeler.classifier === 'jev');
+
+    const k = ticketLabeler.accuracy('keyword');
+    const j = ticketLabeler.accuracy('jev');
+    if (k !== null && j !== null) {
+        const diff = (j - k) * 100;
+        scoreNoteEl.innerText = diff >= 0
+            ? `Jev is ${diff.toFixed(0)} points ahead of the keyword rules on the same tickets.`
+            : `The keyword rules are ${(-diff).toFixed(0)} points ahead here.`;
+    } else {
+        scoreNoteEl.innerText = 'Switch source to compare on the same tickets.';
+    }
+}
+
 const typesafeProxyNote = document.getElementById('typesafeProxyNote');
 const typesafeKeyGroup = document.getElementById('typesafeKeyGroup');
 const typesafeKeyWarning = document.getElementById('typesafeKeyWarning');
@@ -3188,6 +3266,8 @@ function renderTypeSafeStatus() {
     typesafeProxyNote.style.display = viaProxy ? 'block' : 'none';
     typesafeKeyGroup.style.display = viaProxy ? 'none' : 'block';
     typesafeKeyWarning.style.display = viaProxy ? 'none' : 'block';
+
+    renderScoreboard();
 }
 
 ticketLabeler.onChange(renderTypeSafeStatus);
@@ -3216,10 +3296,14 @@ typesafeKeyInput.value = ticketLabeler.hasApiKey() ? ticketLabeler.apiKey : '';
 
 document.getElementById('slTicketSource').onchange = (e) => {
     ticketSource = e.target.value;
+    const classified = ticketSource === 'typesafe' || ticketSource === 'keyword';
+
+    // Only the model needs a key and a proxy; the baseline runs locally.
     typesafePanel.style.display = ticketSource === 'typesafe' ? 'block' : 'none';
-    ticketLabeler.setEnabled(ticketSource === 'typesafe');
-    // Existing tickets keep their current category until they are collected and
-    // respawned, so the switch takes effect as the pool fills.
+    scoreboard.style.display = classified ? 'block' : 'none';
+
+    if (classified) ticketLabeler.setClassifier(ticketSource === 'typesafe' ? 'jev' : 'keyword');
+    ticketLabeler.setEnabled(classified);
     renderTypeSafeStatus();
 };
 
