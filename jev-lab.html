@@ -92,9 +92,16 @@
   .status.err { color: var(--critical); }
 
   canvas#stage {
-    display: block; width: 100%; height: 380px;
+    display: block; width: 100%; height: min(62vh, 560px);
     background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
   }
+  /* Presentation mode: the stage fills the screen and the chrome gets out of it. */
+  #liveStage:fullscreen { background: var(--surface-0); padding: 0; border: 0; border-radius: 0; }
+  #liveStage:fullscreen canvas#stage { height: 100vh; border-radius: 0; border: 0; }
+  #liveStage:fullscreen .controls,
+  #liveStage:fullscreen .kpis,
+  #liveStage:fullscreen h2,
+  #liveStage:fullscreen .note { display: none; }
   input[type=range] { width: 130px; accent-color: var(--incident); }
 
   svg { display: block; width: 100%; overflow: visible; }
@@ -152,18 +159,19 @@
     </p>
   </header>
 
-  <div class="panel">
+  <div class="panel" id="liveStage">
     <h2>Live</h2>
-    <canvas id="stage" height="380" aria-label="Couriers carrying tickets to Jev and into sorted bins"></canvas>
+    <canvas id="stage" aria-label="Couriers carrying tickets to Jev and into sorted bins"></canvas>
     <div class="controls" style="margin-top:12px">
       <button class="primary" id="liveToggle">Start</button>
+      <button id="liveFull">Present</button>
       <div class="field">
-        <label for="speed">Game speed <span id="speedVal" class="mono">3.0×</span></label>
-        <input type="range" id="speed" min="1" max="200" value="30" step="1">
+        <label for="speed">Game speed <span id="speedVal" class="mono">4.0×</span></label>
+        <input type="range" id="speed" min="1" max="500" value="40" step="1">
       </div>
       <div class="field">
-        <label for="couriers">Couriers <span id="courierVal" class="mono">6</span></label>
-        <input type="range" id="couriers" min="1" max="40" value="6" step="1">
+        <label for="couriers">Couriers <span id="courierVal" class="mono">12</span></label>
+        <input type="range" id="couriers" min="1" max="200" value="12" step="1">
       </div>
       <div class="field">
         <label for="liveBatch">Tickets per request</label>
@@ -171,6 +179,7 @@
           <option value="1">1</option>
           <option value="4">4</option>
           <option value="8" selected>8</option>
+          <option value="16">16</option>
         </select>
       </div>
     </div>
@@ -620,8 +629,8 @@ const sctx = stage.getContext('2d');
 
 const live = {
   running: false,
-  speed: 3,
-  courierCount: 6,
+  speed: 4,
+  courierCount: 12,
   batch: 8,
   couriers: [],
   queued: [],          // tickets picked up, not yet dispatched
@@ -632,12 +641,14 @@ const live = {
   recent: [],          // timestamps of resolved decisions, for the rate
   cursor: 0,
   lastFrame: 0,
-  dispatchAt: 0
+  dispatchAt: 0,
+  flashes: [],          // {x, y, t, color} - a ring where a ticket landed
+  binCounts: [0, 0, 0]
 };
 
 function stageSize() {
   const ratio = devicePixelRatio || 1;
-  const w = stage.clientWidth, h = 380;
+  const w = stage.clientWidth, h = stage.clientHeight;
   if (stage.width !== w * ratio || stage.height !== h * ratio) {
     stage.width = w * ratio; stage.height = h * ratio;
     sctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -655,10 +666,12 @@ function makeCourier(i, w, h) {
   return {
     x: 40 + Math.random() * Math.max(1, w - 80),
     y: h - 60 - Math.random() * 40,
+    row: i % 5,
     phase: 'descend',
     ticket: null,
     targetX: 0,
-    hold: 0
+    hold: 0,
+    trail: []
   };
 }
 
@@ -684,6 +697,7 @@ function dispatchQueued() {
       t.correct = r.correct;
       t.confidence = r.confidence;
       t.resolved = true;
+      t.resolvedAt = performance.now();
     });
   }).catch(() => {
     live.inFlight--;
@@ -714,8 +728,11 @@ function stepLive(dt) {
 
     } else if (c.phase === 'ascend') {
       c.y -= speed;
-      if (c.y <= binY + 26) {
-        c.y = binY + 26;
+      // Five staggered rows: a hundred held couriers on one line is a smear,
+      // and the queue length is the thing an audience should be able to read.
+      const stop = binY + 66 + c.row * 15;
+      if (c.y <= stop) {
+        c.y = stop;
         c.phase = c.ticket.resolved ? 'deliver' : 'hold';
       }
 
@@ -734,6 +751,8 @@ function stepLive(dt) {
           live.sorted++;
           if (c.ticket.correct) live.correct++;
           live.recent.push(performance.now());
+          live.binCounts[idx]++;
+          live.flashes.push({ x: c.x, y: c.y, t: performance.now(), idx, ok: c.ticket.correct });
         }
         c.ticket = null; c.hold = 0; c.phase = 'descend';
         // Fetch from a fresh spot next time. Without this a courier keeps the
@@ -752,6 +771,14 @@ function stepLive(dt) {
 
   const cutoff = now - 5000;
   while (live.recent.length && live.recent[0] < cutoff) live.recent.shift();
+
+  // A short trail per courier reads as motion even at high speed.
+  live.couriers.forEach(c => {
+    c.trail.push({ x: c.x, y: c.y });
+    if (c.trail.length > 8) c.trail.shift();
+  });
+
+  live.flashes = live.flashes.filter(f => now - f.t < 650);
 }
 
 function drawLive() {
@@ -774,9 +801,11 @@ function drawLive() {
     roundRect(bx + 10, 18, bw - 20, 46, 8);
     sctx.fill(); sctx.stroke();
     sctx.fillStyle = colors[i];
-    sctx.font = '600 12px ' + css.getPropertyValue('--ui');
+    sctx.font = '600 13px ' + css.getPropertyValue('--ui');
     sctx.textAlign = 'center';
-    sctx.fillText(NAME[l], bx + bw / 2, 46);
+    sctx.fillText(NAME[l], bx + bw / 2, 40);
+    sctx.font = '700 15px ' + css.getPropertyValue('--mono');
+    sctx.fillText(live.binCounts[i], bx + bw / 2, 58);
   });
 
   // Inbox strip
@@ -789,8 +818,48 @@ function drawLive() {
   sctx.textAlign = 'left';
   sctx.fillText('unclassified inbox', 8, floorY + 32);
 
+  // The model itself: a chip that pulses while requests are open, so an
+  // audience can see that something off-screen is being asked, not computed here.
+  const busy = live.inFlight > 0;
+  const chipY = binY + 26;
+  sctx.textAlign = 'center';
+  sctx.font = '700 11px ' + css.getPropertyValue('--mono');
+  const chipText = busy ? `JEV \u00b7 ${live.inFlight} in flight` : 'JEV \u00b7 idle';
+  const cwid = sctx.measureText(chipText).width + 26;
+  sctx.globalAlpha = busy ? 0.55 + 0.45 * Math.sin(performance.now() / 150) : 0.35;
+  sctx.strokeStyle = busy ? css.getPropertyValue('--warning').trim() : ink3;
+  sctx.lineWidth = 1.5;
+  roundRect(w / 2 - cwid / 2, chipY - 12, cwid, 22, 11);
+  sctx.stroke();
+  sctx.globalAlpha = 1;
+  sctx.fillStyle = busy ? css.getPropertyValue('--warning').trim() : ink3;
+  sctx.fillText(chipText, w / 2, chipY + 3);
+
+  // Landing flashes
+  live.flashes.forEach(f => {
+    const age = (performance.now() - f.t) / 650;
+    sctx.globalAlpha = (1 - age) * 0.8;
+    sctx.strokeStyle = f.ok ? colors[f.idx] : css.getPropertyValue('--critical').trim();
+    sctx.lineWidth = 2.5;
+    sctx.beginPath();
+    sctx.arc(f.x, f.y, 6 + age * 26, 0, Math.PI * 2);
+    sctx.stroke();
+    sctx.globalAlpha = 1;
+  });
+
   // Couriers
   live.couriers.forEach(c => {
+    if (c.trail.length > 1) {
+      sctx.strokeStyle = c.ticket && c.ticket.resolved && c.ticket.label
+        ? colors[LABELS.indexOf(c.ticket.label)] : ink3;
+      sctx.lineWidth = 1.5;
+      sctx.globalAlpha = 0.18;
+      sctx.beginPath();
+      sctx.moveTo(c.trail[0].x, c.trail[0].y + 4);
+      for (let i = 1; i < c.trail.length; i++) sctx.lineTo(c.trail[i].x, c.trail[i].y + 4);
+      sctx.stroke();
+      sctx.globalAlpha = 1;
+    }
     if (c.ticket) {
       const resolved = c.ticket.resolved && c.ticket.label;
       const col = resolved ? colors[LABELS.indexOf(c.ticket.label)] : ink3;
@@ -804,6 +873,16 @@ function drawLive() {
         sctx.font = 'bold 9px ' + css.getPropertyValue('--mono');
         sctx.textAlign = 'center';
         sctx.fillText('?', c.x, c.y - 5);
+      } else if (c.ticket.resolvedAt && performance.now() - c.ticket.resolvedAt < 380) {
+        // The decision arriving is the thing to watch, so it gets a beat.
+        const age = (performance.now() - c.ticket.resolvedAt) / 380;
+        sctx.globalAlpha = 1 - age;
+        sctx.strokeStyle = col;
+        sctx.lineWidth = 2;
+        sctx.beginPath();
+        sctx.arc(c.x, c.y - 8, 9 + age * 16, 0, Math.PI * 2);
+        sctx.stroke();
+        sctx.globalAlpha = 1;
       }
     }
 
@@ -868,6 +947,14 @@ $('couriers').addEventListener('input', e => {
   syncCouriers();
 });
 $('liveBatch').addEventListener('change', e => { live.batch = parseInt(e.target.value, 10); });
+
+$('liveFull').addEventListener('click', () => {
+  const panel = $('liveStage');
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (panel.requestFullscreen) panel.requestFullscreen();
+  // Safari on iOS has no element fullscreen; the stage just stays inline there.
+  if (!live.running) $('liveToggle').click();
+});
 
 syncCouriers();
 requestAnimationFrame(frame);
