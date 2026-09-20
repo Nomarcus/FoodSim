@@ -378,6 +378,18 @@
         <span class="stat-label">Active Agents</span>
         <span class="stat-val" id="dispActive">10/10</span>
       </div>
+      <div class="stat-box">
+        <span class="stat-label">Ticket Source</span>
+        <span class="stat-val" id="dispSource" style="font-size:12px">SYNTHETIC</span>
+      </div>
+      <div class="stat-box" title="How often the classifier matched the hand-written answer key">
+        <span class="stat-label">Classifier Acc</span>
+        <span class="stat-val" id="dispClassifierAcc" style="font-size:12px">&mdash;</span>
+      </div>
+      <div class="stat-box" title="Wrong drops where the agent obeyed the classifier and the classifier was wrong">
+        <span class="stat-label">Misled by AI</span>
+        <span class="stat-val" id="dispMisled" style="font-size:12px">&mdash;</span>
+      </div>
     </div>
   </div>
   <div class="panel-section">
@@ -851,7 +863,11 @@ let fps = 0;
 let stats = {
     solved: 0,
     wrong: 0,
-    activeCount: 0
+    activeCount: 0,
+    // Wrong drops split by cause: the classifier named the zone the agent
+    // delivered to, or the agent strayed from what it was told.
+    misledDrops: 0,
+    agentDrops: 0
 };
 
 function recordRollingResult(isCorrect) {
@@ -1900,7 +1916,18 @@ class Agent {
             stats.wrong++;
             recordRollingResult(false);
             spawnParticles(this.x, this.y, varStyles.accentBad, 8);
-            pushFeed(`Wrong Zone!`, 'bad');
+
+            // Separate the two ways a drop goes wrong. If the agent delivered
+            // to exactly the zone the classifier named, the agent did its job
+            // and the classifier misled it; otherwise the agent itself strayed.
+            const misled = this.carrying.predicted && z.id === this.carrying.predicted;
+            if (misled) {
+                stats.misledDrops++;
+                pushFeed(`Wrong Zone — classifier said ${z.label || z.id}`, 'bad');
+            } else {
+                stats.agentDrops++;
+                pushFeed(`Wrong Zone!`, 'bad');
+            }
           }
           this.carrying.respawn();
           this.carrying = null;
@@ -2295,6 +2322,7 @@ function updateUI() {
   if(bestAgent) {
       document.getElementById('dispFit').innerText = bestAgent.fitness.toFixed(2);
   }
+  updateClassifierStats();
 
   const progress = clamp(frame / CFG.episodeDuration, 0, 1);
   const progressFill = document.getElementById('episodeFill');
@@ -2488,6 +2516,56 @@ function updateHoverTip(e) {
         `;
     } else {
         hoverTip.style.opacity = 0;
+    }
+}
+
+/**
+ * Mirror the classifier's state into the console tiles, so the headline numbers
+ * and the thing driving them can be read in one place.
+ */
+function updateClassifierStats() {
+    const srcEl = document.getElementById('dispSource');
+    const accEl = document.getElementById('dispClassifierAcc');
+    const misEl = document.getElementById('dispMisled');
+    if (!srcEl) return;
+
+    const live = ticketSource === 'typesafe' && ticketLabeler.status === 'ready'
+        && ticketLabeler.stats.labelled > 0;
+
+    if (ticketSource === 'synthetic') {
+        srcEl.innerText = 'SYNTHETIC';
+        srcEl.style.color = 'var(--text-dim)';
+    } else if (ticketSource === 'keyword') {
+        srcEl.innerText = 'KEYWORD';
+        srcEl.style.color = '#ffc98a';
+    } else if (live) {
+        srcEl.innerText = 'JEV';
+        srcEl.style.color = 'var(--accent-ok)';
+    } else {
+        // Selected but not actually classifying - never imply Jev is running.
+        srcEl.innerText = 'JEV …';
+        srcEl.style.color = 'var(--accent)';
+    }
+
+    const acc = (ticketSource === 'synthetic') ? null : ticketLabeler.accuracy();
+    if (acc === null) {
+        accEl.innerText = '—';
+        accEl.style.color = '#fff';
+    } else {
+        accEl.innerText = `${(acc * 100).toFixed(0)}% (${ticketLabeler.correctCount()}/${ticketLabeler.coverage()})`;
+        accEl.style.color = acc >= 0.85 ? 'var(--accent-ok)' : acc >= 0.7 ? '#ffc98a' : 'var(--accent-bad)';
+    }
+
+    // Of all the wrong drops, how many were the classifier's fault rather than
+    // the agent's? This is where classification quality becomes visible as
+    // simulation outcome.
+    if (ticketSource === 'synthetic' || stats.wrong === 0) {
+        misEl.innerText = '—';
+        misEl.style.color = '#fff';
+    } else {
+        const share = stats.misledDrops / stats.wrong;
+        misEl.innerText = `${stats.misledDrops} of ${stats.wrong}`;
+        misEl.style.color = share >= 0.5 ? 'var(--accent-bad)' : 'var(--text-main)';
     }
 }
 
@@ -2856,6 +2934,8 @@ function resetEpisode({ evolve = true } = {}) {
   frame = 0;
   stats.solved = 0;
   stats.wrong = 0;
+  stats.misledDrops = 0;
+  stats.agentDrops = 0;
 
   makeGrid();
   tickets.forEach(t => t.respawn());
