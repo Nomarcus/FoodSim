@@ -149,18 +149,47 @@
     { group: 'vpn', text: 'I keep getting dropped from the VPN every ten minutes or so and have to reconnect.' },
     { group: 'vpn', text: 'Remote access keeps cutting out. It comes back on its own but I lose whatever I was in the middle of.' },
     { group: 'vpn', text: 'Cannot stay connected to the company network from home this week \u2014 it drops constantly.' },
+    { group: 'desk', text: 'Please order a standing desk for my office.' },
 
     { group: 'printer', text: 'The printer by the kitchen on floor 3 has gone offline again.' },
     { group: 'printer', text: 'Nobody on the third floor can print. The queue just sits there and nothing comes out.' },
     { group: 'printer', text: 'Third floor device is unreachable from my laptop, it says offline in the dialog.' },
+    { group: 'adobe', text: 'I need the Adobe suite installed before Friday\u2019s workshop.' },
 
     { group: 'payroll', text: 'The payroll export produced an empty file this month.' },
     { group: 'payroll', text: 'Salary file came out with zero rows again when I ran the export.' },
     { group: 'payroll', text: 'The monthly run finished but the output has no records in it at all.' },
+    { group: 'slack', text: 'Could you add me to the engineering Slack workspace?' },
 
-    { group: 'desk', text: 'Please order a standing desk for my office.' },
-    { group: 'adobe', text: 'I need the Adobe suite installed before Friday\u2019s workshop.' },
-    { group: 'slack', text: 'Could you add me to the engineering Slack workspace?' }
+    { group: 'wifi', text: 'Wireless in the upstairs meeting rooms is unusable during calls.' },
+    { group: 'wifi', text: 'Every time we book the glass room the connection drops halfway through the presentation.' },
+    { group: 'wifi', text: 'Signal upstairs is so weak that people join from their phones instead.' },
+    { group: 'monitor', text: 'Requesting a second screen for the desk I moved to.' },
+
+    { group: 'sso', text: 'Single sign-on sends me round in a loop and never lands on the app.' },
+    { group: 'sso', text: 'Logging in bounces between the identity provider and the portal until it gives up.' },
+    { group: 'sso', text: 'I authenticate, get redirected, and end up back at the sign-in page every time.' },
+    { group: 'parking', text: 'How do I apply for a parking permit for the garage?' },
+
+    { group: 'charging', text: 'My laptop stopped charging. The light on the adapter is on but the battery does not fill.' },
+    { group: 'charging', text: 'Machine only runs on mains and dies the moment I unplug it.' },
+    { group: 'charging', text: 'Battery sits at the same percentage all day even when connected to power.' },
+    { group: 'course', text: 'I would like a seat on the project management course in November.' },
+
+    { group: 'drive', text: 'I lost access to the shared project folder overnight, it says permission denied.' },
+    { group: 'drive', text: 'The team directory I could open last week now refuses to let me in.' },
+    { group: 'drive', text: 'Rights to our group storage seem to have been removed without anyone changing them.' },
+    { group: 'quota', text: 'My mailbox is full again, can the limit be raised?' },
+
+    { group: 'mail', text: 'Messages to external recipients take hours to arrive.' },
+    { group: 'mail', text: 'Customers say my replies reach them the next morning instead of straight away.' },
+    { group: 'mail', text: 'Outgoing post sits in the queue for a long time before it finally goes out.' },
+    { group: 'cards', text: 'Need business cards printed with my new job title.' },
+
+    { group: 'crm', text: 'The sales system times out whenever I open a large account.' },
+    { group: 'crm', text: 'Customer records with a lot of history refuse to load and eventually error.' },
+    { group: 'crm', text: 'Opening a big client page spins for a minute and then fails.' },
+    { group: 'phone', text: 'My work phone is four years old, am I due for a replacement?' }
   ];
 
   /*

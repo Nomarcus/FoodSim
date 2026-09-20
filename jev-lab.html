@@ -118,7 +118,7 @@
   .cells i.ok { background: var(--good); }
   .cells i.no { background: var(--critical); }
   canvas#dupStage {
-    display: block; width: 100%; height: min(52vh, 420px); margin-top: 12px;
+    display: block; width: 100%; height: min(70vh, 640px); margin-top: 12px;
     background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
   }
 
@@ -255,6 +255,9 @@
           <option value="24">24</option>
           <option value="48" selected>48</option>
           <option value="96">96</option>
+          <option value="192">192</option>
+          <option value="384">384</option>
+          <option value="768">768</option>
         </select>
       </div>
     </div>
@@ -294,6 +297,14 @@
     <div class="controls">
       <button class="primary" id="dupRun">Find duplicates</button>
       <button id="dupReset">Scatter</button>
+      <div class="field">
+        <label for="dupCount">Tickets</label>
+        <select id="dupCount">
+          <option value="12" selected>12 — 66 pairs</option>
+          <option value="24">24 — 276 pairs</option>
+          <option value="36">36 — 630 pairs</option>
+        </select>
+      </div>
     </div>
     <canvas id="dupStage" aria-label="Tickets drawing together into clusters of duplicates"></canvas>
     <div class="kpis" style="margin-top:12px">
@@ -303,12 +314,18 @@
       <div class="kpi"><div class="label">Pairs correct</div><div class="value" id="dupAcc">—</div><div class="sub" id="dupAccSub">against the grouping key</div></div>
     </div>
     <div class="note">
-      Twelve tickets: three real groups of three, and three unrelated singletons.
-      Each pair is one <strong>noul</strong> — "are these the same underlying
-      problem?" — so 66 questions decide the whole grouping. The tickets share
+      Real groups of three, mixed with unrelated singletons. Each pair is one
+      <strong>noul</strong> — "are these the same underlying problem?" — so the
+      whole grouping is settled by asking about every pair. The tickets share
       almost no words with their own group, so keyword matching cannot find these;
       the overlap is in meaning. Which tickets belong together is written down by
-      hand, so the result is checked, not just watched.
+      hand, so the result is checked rather than admired.
+      <br><br>
+      <strong>Pairs grow with the square of the tickets</strong> — 12 tickets is 66
+      questions, 36 is 630, and 248 would be over thirty thousand. That is why this
+      stops at 36: beyond it, comparing everything to everything is the wrong shape
+      for the problem, and real deduplication compares against one representative
+      per group instead.
     </div>
   </div>
   <div class="panel">
@@ -1405,7 +1422,8 @@ raceCells($('raceCellsJev'), 48);
  * Which tickets belong together is written down by hand in DUPLICATES, so the
  * clustering is checked rather than admired.
  */
-const DUPS = TypeSafeTickets.DUPLICATES;
+const ALL_DUPS = TypeSafeTickets.DUPLICATES;
+let DUPS = ALL_DUPS.slice(0, 12);
 const dupStage = $('dupStage');
 const dctx = dupStage.getContext('2d');
 
@@ -1423,6 +1441,7 @@ function dupSize() {
 
 function dupScatter() {
   const { w, h } = dupSize();
+  DUPS = ALL_DUPS.slice(0, parseInt($('dupCount').value, 10));
   dup.links = [];
   dup.nodes = DUPS.map((d, i) => {
     const a = (i / DUPS.length) * Math.PI * 2;
@@ -1430,7 +1449,8 @@ function dupScatter() {
       ...d, i,
       x: w / 2 + Math.cos(a) * Math.min(w, h) * 0.34,
       y: h / 2 + Math.sin(a) * Math.min(w, h) * 0.34,
-      tx: null, ty: null, cluster: null, colW: w / 4
+      tx: null, ty: null, cluster: null, colW: w / 4,
+      r: Math.min(w, h) * 0.34
     };
   });
 }
@@ -1520,17 +1540,23 @@ async function runDuplicates() {
   const roots = clusterFrom(judged);
   const groups = [...new Set(roots)];
   const { w, h } = dupSize();
-  const colW = w / groups.length;
+  // Grid of clusters. A single row of columns was fine for five groups and
+  // unreadable at eighteen, which is exactly where the bigger runs land.
+  const cols = Math.max(1, Math.min(groups.length, Math.round(Math.sqrt(groups.length * (w / h) * 1.6))));
+  const rows = Math.ceil(groups.length / cols);
+  const cellW = w / cols, cellH = h / rows;
+
   groups.forEach((root, gi) => {
     const members = dup.nodes.filter((_, i) => roots[i] === root);
-    const cx = colW * gi + colW / 2;
-    const rowH = Math.min(52, (h - 70) / Math.max(1, members.length));
-    const startY = h / 2 - ((members.length - 1) * rowH) / 2;
+    const gx = (gi % cols) * cellW;
+    const gy = Math.floor(gi / cols) * cellH;
+    const rowH = Math.min(22, (cellH - 24) / Math.max(1, members.length));
+    const startY = gy + cellH / 2 - ((members.length - 1) * rowH) / 2;
     members.forEach((n, mi) => {
-      n.tx = cx;
+      n.tx = gx + 16;
       n.ty = startY + mi * rowH;
       n.cluster = gi;
-      n.colW = colW;
+      n.colW = cellW;
     });
   });
   dup.links = judged.filter(p => p.same);
@@ -1567,25 +1593,30 @@ function dupFrame() {
   dup.nodes.forEach(n => {
     const col = n.cluster === null ? ink3 : palette[n.cluster % palette.length];
     dctx.fillStyle = col;
-    dctx.beginPath(); dctx.arc(n.x, n.y, 9, 0, Math.PI * 2); dctx.fill();
+    dctx.beginPath(); dctx.arc(n.x, n.y, 6, 0, Math.PI * 2); dctx.fill();
     dctx.fillStyle = ink2;
     dctx.font = '10px ' + css.getPropertyValue('--mono');
     dctx.textAlign = 'left';
     // Beside the node and clipped to the column. Centred labels below the node
     // ran into the neighbouring column as soon as a cluster grew.
     // Also clip to the canvas edge - the rightmost column's label ran off it.
-    const avail = Math.min((n.colW || 160) - 46, w - (n.x + 15) - 8);
+    const avail = Math.min((n.colW || 160) - 24, w - (n.x + 11) - 8);
     let label = n.text;
     while (label.length > 4 && dctx.measureText(label + '…').width > avail) {
       label = label.slice(0, -1);
     }
-    dctx.fillText(label + '…', n.x + 15, n.y + 4);
+    dctx.fillText(label + '…', n.x + 11, n.y + 3);
   });
 
   requestAnimationFrame(dupFrame);
 }
 
 $('dupRun').addEventListener('click', runDuplicates);
+$('dupCount').addEventListener('change', () => {
+  dupScatter();
+  ['dupPairs', 'dupReq', 'dupTime', 'dupAcc'].forEach(id => $(id).textContent = '—');
+  $('dupAcc').style.color = '';
+});
 $('dupReset').addEventListener('click', () => {
   dupScatter();
   ['dupPairs', 'dupReq', 'dupTime', 'dupAcc'].forEach(id => $(id).textContent = '—');
