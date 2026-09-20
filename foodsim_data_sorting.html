@@ -123,6 +123,16 @@
       min-height: 13px;
       word-break: break-word;
     }
+    .ts-proxy {
+      font-size: 10px;
+      line-height: 1.45;
+      color: var(--accent-ok);
+      background: rgba(124, 242, 157, 0.08);
+      border: 1px solid rgba(124, 242, 157, 0.3);
+      border-radius: 6px;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+    }
     .ts-status.is-error { color: var(--accent-bad); }
     .ts-status.is-ready { color: var(--accent-ok); }
     .ts-btn {
@@ -402,12 +412,16 @@
           </select>
         </div>
         <div id="typesafePanel" style="display:none">
-          <div class="control-group">
+          <div id="typesafeProxyNote" class="ts-proxy" style="display:none">
+            Using the server proxy &mdash; the API key stays on the server and
+            never reaches this browser.
+          </div>
+          <div class="control-group" id="typesafeKeyGroup">
             <label title="Stored in this browser's localStorage">TypeSafe API Key</label>
             <input type="password" id="inpTypeSafeKey" placeholder="sk-..." autocomplete="off"
                    style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid rgba(148,163,209,.35);background:rgba(5,8,22,.8);color:var(--text-main);font-family:var(--font-mono);font-size:12px;">
           </div>
-          <div class="ts-warn">
+          <div class="ts-warn" id="typesafeKeyWarning">
             The key is used directly from the browser and is readable by anyone
             who opens this page. Use it only on a local copy &mdash; never on a
             hosted deployment.
@@ -3159,10 +3173,21 @@ const typesafePanel = document.getElementById('typesafePanel');
 const typesafeStatus = document.getElementById('typesafeStatus');
 const typesafeKeyInput = document.getElementById('inpTypeSafeKey');
 
+const typesafeProxyNote = document.getElementById('typesafeProxyNote');
+const typesafeKeyGroup = document.getElementById('typesafeKeyGroup');
+const typesafeKeyWarning = document.getElementById('typesafeKeyWarning');
+
 function renderTypeSafeStatus() {
     typesafeStatus.innerText = ticketLabeler.describeStatus();
     typesafeStatus.classList.toggle('is-error', ticketLabeler.status === 'error');
     typesafeStatus.classList.toggle('is-ready', ticketLabeler.status === 'ready');
+
+    // On a deployment with the proxy there is nothing for the user to paste,
+    // and no key in the browser to warn about.
+    const viaProxy = ticketLabeler.usesProxy();
+    typesafeProxyNote.style.display = viaProxy ? 'block' : 'none';
+    typesafeKeyGroup.style.display = viaProxy ? 'none' : 'block';
+    typesafeKeyWarning.style.display = viaProxy ? 'none' : 'block';
 }
 
 ticketLabeler.onChange(renderTypeSafeStatus);

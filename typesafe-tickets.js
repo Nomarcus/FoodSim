@@ -26,6 +26,12 @@
   var ENDPOINT = '/v1/systemone';
   var DEFAULT_MODEL = 'jev-latest';
 
+  // A same-origin serverless function that holds the key and forwards the call.
+  // api.typesafe.ai sends no CORS headers, so a direct browser call fails before
+  // it leaves the page - on a deployment that provides this path we use it, and
+  // the key never touches the browser at all.
+  var PROXY_PATH = 'api/typesafe';
+
   var KEY_STORAGE = 'foodsim.typesafe.apiKey';
   var CACHE_STORAGE = 'foodsim.typesafe.labelCache.v1';
 
@@ -157,6 +163,12 @@
     this.inFlight = false;
     this.stopped = false;
 
+    // 'proxy'   - a same-origin function holds the key and forwards the call
+    // 'direct'  - no proxy on this deployment, the browser calls the API itself
+    // 'unknown' - not probed yet
+    this.mode = 'unknown';
+    this.proxyConfigured = false;
+
     // Labelled tickets waiting to be handed to the simulation.
     this.pool = [];
     // Texts not yet sent, refilled from the corpus when exhausted.
@@ -218,19 +230,63 @@
     this.emit();
   };
 
+  /** Whether a request can be authenticated: by the proxy, or by a pasted key. */
   TicketLabeler.prototype.hasApiKey = function () {
+    if (this.mode === 'proxy') return this.proxyConfigured;
     return !!this.apiKey;
   };
 
+  TicketLabeler.prototype.usesProxy = function () {
+    return this.mode === 'proxy';
+  };
+
+  /**
+   * Ask the deployment whether it provides a proxy. A 404 (GitHub Pages, a
+   * plain file server) simply means there is none, so we fall back to calling
+   * the API from the browser and asking for a key.
+   */
+  TicketLabeler.prototype.detectProxy = function () {
+    var self = this;
+    if (this.modePromise) return this.modePromise;
+
+    this.modePromise = global.fetch(PROXY_PATH, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (res) {
+      if (!res.ok) throw new Error('no proxy');
+      return res.json();
+    }).then(function (info) {
+      if (!info || info.proxy !== true) throw new Error('no proxy');
+      self.mode = 'proxy';
+      self.proxyConfigured = !!info.configured;
+      if (info.model) self.model = info.model;
+    }).catch(function () {
+      self.mode = 'direct';
+      self.proxyConfigured = false;
+    }).then(function () {
+      self.emit();
+      return self.mode;
+    });
+
+    return this.modePromise;
+  };
+
   TicketLabeler.prototype.setEnabled = function (on) {
+    var self = this;
     this.enabled = !!on;
     this.stopped = false;
-    if (this.enabled) {
-      this.setStatus(this.hasApiKey() ? 'idle' : 'needs-key');
-      this.refill();
-    } else {
+
+    if (!this.enabled) {
       this.setStatus('off');
+      return;
     }
+
+    this.setStatus('probing');
+    this.detectProxy().then(function () {
+      if (!self.enabled) return;
+      self.setStatus(self.hasApiKey() ? 'idle' : 'needs-key');
+      self.refill();
+    });
   };
 
   TicketLabeler.prototype.clearCache = function () {
@@ -337,13 +393,14 @@
       var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
       var timer = setTimeout(function () { if (controller) controller.abort(); }, TIMEOUT_MS);
 
-      return global.fetch(self.baseURL + ENDPOINT, {
+      var url = self.usesProxy() ? PROXY_PATH : (self.baseURL + ENDPOINT);
+      var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      // Only the direct path carries a key; the proxy attaches its own.
+      if (!self.usesProxy()) headers['Authorization'] = 'Bearer ' + self.apiKey;
+
+      return global.fetch(url, {
         method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + self.apiKey,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
+        headers: headers,
         body: JSON.stringify(self.buildPayload(texts)),
         signal: controller ? controller.signal : undefined
       }).then(function (res) {
@@ -359,7 +416,14 @@
         });
       }, function (netErr) {
         clearTimeout(timer);
-        var err = new Error('TypeSafe request failed: ' + (netErr && netErr.message ? netErr.message : netErr));
+        var detail = (netErr && netErr.message) ? netErr.message : String(netErr);
+        // A direct browser call to api.typesafe.ai is blocked by CORS, and the
+        // browser reports it as an opaque network failure. Say what it means.
+        var hint = self.usesProxy()
+          ? 'TypeSafe proxy request failed: ' + detail
+          : 'Blocked by the browser (CORS). api.typesafe.ai cannot be called ' +
+            'directly from a page - deploy the included api/typesafe proxy. [' + detail + ']';
+        var err = new Error(hint);
         err.retryable = true;
         throw err;
       });
@@ -427,9 +491,14 @@
   TicketLabeler.prototype.describeStatus = function () {
     switch (this.status) {
       case 'off': return 'Synthetic categories (TypeSafe off)';
-      case 'needs-key': return 'Paste an API key to start labelling';
+      case 'probing': return 'Looking for a server proxy…';
+      case 'needs-key':
+        return this.mode === 'proxy'
+          ? 'Proxy found, but TYPESAFE_API_KEY is not set on the server'
+          : 'Paste an API key to start labelling';
       case 'labelling': return 'Labelling tickets with ' + this.model + '…';
-      case 'ready': return 'Labelled ' + this.stats.labelled + ' · pool ' + this.pool.length + ' · ' + this.stats.requests + ' requests';
+      case 'ready': return (this.usesProxy() ? 'Via server proxy · ' : '') +
+        'Labelled ' + this.stats.labelled + ' · pool ' + this.pool.length + ' · ' + this.stats.requests + ' requests';
       case 'error': return 'Error: ' + (this.lastError || 'unknown');
       default: return 'Idle';
     }
