@@ -412,6 +412,9 @@
             who opens this page. Use it only on a local copy &mdash; never on a
             hosted deployment.
           </div>
+          <label class="checkbox-row" title="Feed the network Jev's probability spread instead of a hard one-hot of the selected category">
+            <input type="checkbox" id="chkProbInputs" checked> Feed probabilities to network
+          </label>
           <div class="ts-status" id="typesafeStatus">TypeSafe off</div>
           <button id="btnTypeSafeClear" class="ts-btn">Clear cached labels</button>
         </div>
@@ -755,6 +758,9 @@ const ticketLabeler = new TypeSafeTickets.TicketLabeler({
   labels: CFG.categories.map(c => c.id)
 });
 let ticketSource = 'synthetic';
+// Feed Jev's probability distribution to the network instead of a one-hot of
+// the selected category. Only has an effect on TypeSafe-labelled tickets.
+let useProbabilityInputs = true;
 
 // FPS Counter Variables
 let lastFrameTime = 0;
@@ -793,6 +799,23 @@ const tanh = (x) => Math.tanh(x);
 const NET_HIDDEN_MIN = 8;
 const NET_HIDDEN_MAX = 40;
 let NET_INPUTS = CFG.inputs;
+
+/*
+ * The policy network's input vector, in the exact order Agent.getState() fills
+ * it. Both the brain visualisation and the sensor overlay index into that
+ * vector, and they used to carry their own idea of the layout - which had
+ * drifted out of step with getState(), mislabelling the brain panel and drawing
+ * the wall sensor from the speed input. Everything reads this instead.
+ */
+const INPUT_LABELS = [
+    'Ticket_X', 'Ticket_Y',
+    'Inc_X', 'Inc_Y', 'Req_X', 'Req_Y', 'Prob_X', 'Prob_Y',
+    'Wall_Dist',
+    'Carry_INC', 'Carry_REQ', 'Carry_PROB',
+    'Energy', 'Speed',
+    'Ticket_Dist'
+];
+const INPUT_IDX = INPUT_LABELS.reduce((map, name, i) => { map[name] = i; return map; }, {});
 let NET_OUTPUTS = CFG.outputs;
 let NET_HIDDEN = CFG.hiddens;
 
@@ -1265,6 +1288,33 @@ class Nest {
     }
 }
 
+/**
+ * The category signal the network sees for a carried ticket, in CFG.categories
+ * order.
+ *
+ * With probability inputs on, this is Jev's distribution over the categories,
+ * so a ticket the model found genuinely ambiguous arrives as something like
+ * [0.55, 0.30, 0.15] instead of [1, 0, 0]. Grading is unaffected - the ticket's
+ * true category is still the label Jev selected - so the agent is being asked
+ * to commit to a zone while only seeing how confident the classifier was.
+ *
+ * Falls back to a one-hot whenever probabilities are unavailable (synthetic
+ * tickets, or the toggle off), which keeps the original behaviour intact.
+ */
+function carriedCategorySignal(ticket) {
+    if (useProbabilityInputs && ticket && ticket.probabilities) {
+        const raw = CFG.categories.map(cat => {
+            const p = ticket.probabilities[cat.id];
+            return (typeof p === 'number' && isFinite(p) && p > 0) ? p : 0;
+        });
+        const total = raw.reduce((sum, p) => sum + p, 0);
+        // A missing or zero-sum distribution would feed the net all zeros,
+        // which reads as "carrying nothing" - fall through to the one-hot.
+        if (total > 0) return raw.map(p => p / total);
+    }
+    return CFG.categories.map(cat => (ticket && ticket.def.id === cat.id) ? 1 : 0);
+}
+
 function getBalancedCategoryIndex(excludeTicket = null) {
     const counts = Array.from({ length: CFG.categories.length }, () => 0);
     for (const t of tickets) {
@@ -1489,10 +1539,14 @@ class Agent {
     inputs[inputIndex++] = normDistWithRange(minDistToWall, effectiveRange); 
 
     // 4. Carrying Info (3 inputs)
+    // Either a hard one-hot of the carried category, or Jev's probability
+    // distribution over the categories. The soft signal means the agent has to
+    // act under the model's uncertainty rather than being handed the answer.
     if(this.carrying) {
-      inputs[inputIndex++] = this.carrying.def.id === 'incident' ? 1:0; 
-      inputs[inputIndex++] = this.carrying.def.id === 'request' ? 1:0; 
-      inputs[inputIndex++] = this.carrying.def.id === 'problem' ? 1:0; 
+      const carrySignal = carriedCategorySignal(this.carrying);
+      inputs[inputIndex++] = carrySignal[0];
+      inputs[inputIndex++] = carrySignal[1];
+      inputs[inputIndex++] = carrySignal[2];
     } else {
       inputs[inputIndex++] = 0;
       inputs[inputIndex++] = 0;
@@ -1785,8 +1839,8 @@ class Agent {
       if(!document.getElementById('chkSensors')?.checked) return;
       
       const inputs = this.lastState;
-      const wallInput = inputs[13]; 
-      const ticketDistInput = inputs[14]; 
+      const wallInput = inputs[INPUT_IDX.Wall_Dist];
+      const ticketDistInput = inputs[INPUT_IDX.Ticket_Dist];
       const sensorRange = this.lastSensorRange || CFG.sensorRange;
 
       ctx.globalAlpha = 0.5;
@@ -2206,13 +2260,7 @@ function drawBrain(agent) {
     
     // Input Nodes (State)
     brainCtx.textAlign = 'right';
-    const inputLabels = [
-        'Ticket_X', 'Ticket_Y',
-        'Inc_X', 'Inc_Y', 'Req_X', 'Req_Y', 'Prob_X', 'Prob_Y',
-        'Carry_INC', 'Carry_REQ', 'Carry_PROB',
-        'Energy', 'Speed',
-        'Wall_Dist', 'Ticket_Dist'
-    ];
+    const inputLabels = INPUT_LABELS;
     for(let i=0; i<CFG.inputs; i++) {
         const val = agent.lastState[i] || 0;
         const c = Math.round(clamp(val, 0, 1) * 255);
@@ -3153,6 +3201,13 @@ document.getElementById('slTicketSource').onchange = (e) => {
 typesafeKeyInput.onchange = (e) => {
     ticketLabeler.setApiKey(e.target.value);
     if (ticketSource === 'typesafe') ticketLabeler.setEnabled(true);
+};
+
+document.getElementById('chkProbInputs').onchange = (e) => {
+    useProbabilityInputs = e.target.checked;
+    pushFeed(useProbabilityInputs
+        ? 'Network now sees Jev probability spread'
+        : 'Network now sees hard one-hot category', 'warn');
 };
 
 document.getElementById('btnTypeSafeClear').onclick = () => {
