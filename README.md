@@ -45,6 +45,21 @@ Hovering a ticket shows its text, Jev's confidence, and the full probability
 spread across the three categories — useful for seeing whether agents mis-sort
 the tickets the model was least sure about.
 
+### Probability inputs
+
+With **Feed probabilities to network** enabled (default), the three carried-ticket
+inputs to the policy network carry Jev's probability distribution rather than a
+hard one-hot of the selected category. A ticket the model found ambiguous arrives
+as something like `[0.45, 0.35, 0.20]` instead of `[1, 0, 0]`.
+
+Grading is unchanged — the ticket's true category is still the label Jev selected —
+so agents must commit to a zone while seeing only how confident the classifier was.
+Guessing well under uncertainty becomes part of what the population is selected for.
+
+Turn the checkbox off to feed a one-hot instead, which makes it possible to A/B the
+two signals against the same ticket stream. Synthetic tickets always use a one-hot,
+since they have no distribution attached.
+
 Implementation notes:
 - Calls `POST https://api.typesafe.ai/v1/systemone` with the default `jev-latest`
   model. Eight tickets go out per request as independent `choice` questions over
