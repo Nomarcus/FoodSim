@@ -91,6 +91,12 @@
   .status { font-family: var(--mono); font-size: 12px; color: var(--ink-2); margin-top: 12px; min-height: 18px; }
   .status.err { color: var(--critical); }
 
+  canvas#stage {
+    display: block; width: 100%; height: 380px;
+    background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
+  }
+  input[type=range] { width: 130px; accent-color: var(--incident); }
+
   svg { display: block; width: 100%; overflow: visible; }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
   .axis-line { stroke: var(--axis); stroke-width: 1; }
@@ -145,6 +151,43 @@
       The sorting simulation is <a href="foodsim_data_sorting.html">on its own page</a>.
     </p>
   </header>
+
+  <div class="panel">
+    <h2>Live</h2>
+    <canvas id="stage" height="380" aria-label="Couriers carrying tickets to Jev and into sorted bins"></canvas>
+    <div class="controls" style="margin-top:12px">
+      <button class="primary" id="liveToggle">Start</button>
+      <div class="field">
+        <label for="speed">Game speed <span id="speedVal" class="mono">3.0×</span></label>
+        <input type="range" id="speed" min="1" max="200" value="30" step="1">
+      </div>
+      <div class="field">
+        <label for="couriers">Couriers <span id="courierVal" class="mono">6</span></label>
+        <input type="range" id="couriers" min="1" max="40" value="6" step="1">
+      </div>
+      <div class="field">
+        <label for="liveBatch">Tickets per request</label>
+        <select id="liveBatch">
+          <option value="1">1</option>
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+        </select>
+      </div>
+    </div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="label">Waiting on Jev</div><div class="value" id="lWait">0</div><div class="sub">couriers held at the top</div></div>
+      <div class="kpi"><div class="label">In flight</div><div class="value" id="lFlight">0</div><div class="sub">open requests</div></div>
+      <div class="kpi"><div class="label">Decisions / s</div><div class="value" id="lRate">0.0</div><div class="sub">last 5 seconds</div></div>
+      <div class="kpi"><div class="label">Avg latency</div><div class="value" id="lLat">—</div><div class="sub">per request</div></div>
+      <div class="kpi"><div class="label">Sorted</div><div class="value" id="lSorted">0</div><div class="sub" id="lSortedSub">&nbsp;</div></div>
+    </div>
+    <div class="note" id="liveNote">
+      Couriers fetch an unclassified ticket and carry it up. The ticket is grey until
+      Jev answers. Raise the game speed past what the round trip allows and the
+      couriers stack up at the top — the wait you see is the model's real latency,
+      which no slider can speed up.
+    </div>
+  </div>
 
   <div class="panel">
     <h2>Run</h2>
@@ -564,6 +607,271 @@ function drawRows(results) {
   }).join('');
 }
 
+/* --- live stage --------------------------------------------------------
+ *
+ * A courier descends to the inbox, picks up an unclassified ticket, and carries
+ * it up. The ticket is dispatched to Jev while in transit and stays grey until
+ * the answer lands; if the courier reaches the top first it holds there. That
+ * hold IS the network round trip, so raising the game speed past what the API
+ * can sustain makes latency visible as a queue rather than hiding it.
+ */
+const stage = $('stage');
+const sctx = stage.getContext('2d');
+
+const live = {
+  running: false,
+  speed: 3,
+  courierCount: 6,
+  batch: 8,
+  couriers: [],
+  queued: [],          // tickets picked up, not yet dispatched
+  inFlight: 0,
+  sorted: 0,
+  correct: 0,
+  latencies: [],
+  recent: [],          // timestamps of resolved decisions, for the rate
+  cursor: 0,
+  lastFrame: 0,
+  dispatchAt: 0
+};
+
+function stageSize() {
+  const ratio = devicePixelRatio || 1;
+  const w = stage.clientWidth, h = 380;
+  if (stage.width !== w * ratio || stage.height !== h * ratio) {
+    stage.width = w * ratio; stage.height = h * ratio;
+    sctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+  return { w, h };
+}
+
+function nextEntry() {
+  const e = CORPUS[live.cursor % CORPUS.length];
+  live.cursor++;
+  return e;
+}
+
+function makeCourier(i, w, h) {
+  return {
+    x: 40 + Math.random() * Math.max(1, w - 80),
+    y: h - 60 - Math.random() * 40,
+    phase: 'descend',
+    ticket: null,
+    targetX: 0,
+    hold: 0
+  };
+}
+
+function syncCouriers() {
+  const { w, h } = stageSize();
+  while (live.couriers.length < live.courierCount) live.couriers.push(makeCourier(live.couriers.length, w, h));
+  live.couriers.length = live.courierCount;
+}
+
+/** Batch whatever has been picked up and send it. */
+function dispatchQueued() {
+  if (!live.queued.length) return;
+  const group = live.queued.splice(0, live.batch);
+  live.inFlight++;
+
+  sendBatch(group.map(t => t.entry)).then(packet => {
+    live.inFlight--;
+    live.latencies.push(packet.latency);
+    if (live.latencies.length > 40) live.latencies.shift();
+    packet.results.forEach((r, i) => {
+      const t = group[i];
+      t.label = r.predicted;
+      t.correct = r.correct;
+      t.confidence = r.confidence;
+      t.resolved = true;
+    });
+  }).catch(() => {
+    live.inFlight--;
+    // Release the couriers rather than holding them forever on a failed call.
+    group.forEach(t => { t.label = null; t.correct = false; t.resolved = true; t.failed = true; });
+    setStatus('Live run: a request failed. Check the proxy.', true);
+  });
+}
+
+function stepLive(dt) {
+  const { w, h } = stageSize();
+  const floorY = h - 46;
+  const binY = 64;
+  const speed = live.speed * 60 * dt;
+
+  const binX = i => (w / 3) * i + w / 6;
+
+  live.couriers.forEach(c => {
+    if (c.phase === 'descend') {
+      c.y += speed;
+      if (c.y >= floorY) { c.y = floorY; c.phase = 'pickup'; }
+
+    } else if (c.phase === 'pickup') {
+      const ticket = { entry: nextEntry(), resolved: false, label: null };
+      c.ticket = ticket;
+      live.queued.push(ticket);
+      c.phase = 'ascend';
+
+    } else if (c.phase === 'ascend') {
+      c.y -= speed;
+      if (c.y <= binY + 26) {
+        c.y = binY + 26;
+        c.phase = c.ticket.resolved ? 'deliver' : 'hold';
+      }
+
+    } else if (c.phase === 'hold') {
+      // Waiting on the model. Nothing the speed slider can do about it.
+      c.hold += dt;
+      if (c.ticket.resolved) c.phase = 'deliver';
+
+    } else if (c.phase === 'deliver') {
+      const idx = Math.max(0, LABELS.indexOf(c.ticket.label));
+      c.targetX = binX(idx);
+      const dx = c.targetX - c.x;
+      if (Math.abs(dx) <= speed) {
+        c.x = c.targetX;
+        if (!c.ticket.failed) {
+          live.sorted++;
+          if (c.ticket.correct) live.correct++;
+          live.recent.push(performance.now());
+        }
+        c.ticket = null; c.hold = 0; c.phase = 'descend';
+        // Fetch from a fresh spot next time. Without this a courier keeps the
+        // bin's x forever and the whole fleet collapses into three columns.
+        c.x = 20 + Math.random() * Math.max(1, w - 40);
+      } else {
+        c.x += Math.sign(dx) * speed;
+      }
+    }
+  });
+
+  // Send a batch once it is full, or after a short wait so stragglers still go.
+  const now = performance.now();
+  if (live.queued.length >= live.batch) { dispatchQueued(); live.dispatchAt = now; }
+  else if (live.queued.length && now - live.dispatchAt > 250) { dispatchQueued(); live.dispatchAt = now; }
+
+  const cutoff = now - 5000;
+  while (live.recent.length && live.recent[0] < cutoff) live.recent.shift();
+}
+
+function drawLive() {
+  const { w, h } = stageSize();
+  const css = getComputedStyle(document.documentElement);
+  const ink3 = css.getPropertyValue('--ink-3').trim();
+  const grid = css.getPropertyValue('--grid').trim();
+  const surface2 = css.getPropertyValue('--surface-2').trim();
+  const colors = LABELS.map(l => css.getPropertyValue('--' + l).trim());
+
+  sctx.clearRect(0, 0, w, h);
+  const binY = 64, floorY = h - 46;
+
+  // Bins
+  LABELS.forEach((l, i) => {
+    const bx = (w / 3) * i, bw = w / 3;
+    sctx.fillStyle = surface2;
+    sctx.strokeStyle = colors[i];
+    sctx.lineWidth = 1.5;
+    roundRect(bx + 10, 18, bw - 20, 46, 8);
+    sctx.fill(); sctx.stroke();
+    sctx.fillStyle = colors[i];
+    sctx.font = '600 12px ' + css.getPropertyValue('--ui');
+    sctx.textAlign = 'center';
+    sctx.fillText(NAME[l], bx + bw / 2, 46);
+  });
+
+  // Inbox strip
+  sctx.strokeStyle = grid;
+  sctx.setLineDash([4, 5]);
+  sctx.beginPath(); sctx.moveTo(0, floorY + 16); sctx.lineTo(w, floorY + 16); sctx.stroke();
+  sctx.setLineDash([]);
+  sctx.fillStyle = ink3;
+  sctx.font = '10px ' + css.getPropertyValue('--mono');
+  sctx.textAlign = 'left';
+  sctx.fillText('unclassified inbox', 8, floorY + 32);
+
+  // Couriers
+  live.couriers.forEach(c => {
+    if (c.ticket) {
+      const resolved = c.ticket.resolved && c.ticket.label;
+      const col = resolved ? colors[LABELS.indexOf(c.ticket.label)] : ink3;
+      sctx.fillStyle = col;
+      sctx.globalAlpha = resolved ? 1 : 0.55;
+      roundRect(c.x - 6, c.y - 16, 12, 15, 3);
+      sctx.fill();
+      sctx.globalAlpha = 1;
+      if (!resolved) {
+        sctx.fillStyle = ink3;
+        sctx.font = 'bold 9px ' + css.getPropertyValue('--mono');
+        sctx.textAlign = 'center';
+        sctx.fillText('?', c.x, c.y - 5);
+      }
+    }
+
+    // A held courier gets a ring so the waiting reads at a glance.
+    if (c.phase === 'hold') {
+      sctx.strokeStyle = css.getPropertyValue('--warning').trim();
+      sctx.lineWidth = 2;
+      sctx.globalAlpha = 0.4 + 0.4 * Math.sin(performance.now() / 180);
+      sctx.beginPath(); sctx.arc(c.x, c.y + 4, 13, 0, Math.PI * 2); sctx.stroke();
+      sctx.globalAlpha = 1;
+    }
+
+    sctx.fillStyle = css.getPropertyValue('--ink-2').trim();
+    sctx.beginPath();
+    sctx.arc(c.x, c.y + 4, 5, 0, Math.PI * 2);
+    sctx.fill();
+  });
+}
+
+function roundRect(x, y, w, h, r) {
+  sctx.beginPath();
+  sctx.moveTo(x + r, y);
+  sctx.arcTo(x + w, y, x + w, y + h, r);
+  sctx.arcTo(x + w, y + h, x, y + h, r);
+  sctx.arcTo(x, y + h, x, y, r);
+  sctx.arcTo(x, y, x + w, y, r);
+  sctx.closePath();
+}
+
+function updateLiveKpis() {
+  $('lWait').textContent = live.couriers.filter(c => c.phase === 'hold').length;
+  $('lFlight').textContent = live.inFlight;
+  $('lRate').textContent = (live.recent.length / 5).toFixed(1);
+  $('lLat').textContent = live.latencies.length
+    ? fmtMs(live.latencies.reduce((a, b) => a + b, 0) / live.latencies.length) : '—';
+  $('lSorted').textContent = live.sorted;
+  $('lSortedSub').textContent = live.sorted
+    ? `${((live.correct / live.sorted) * 100).toFixed(0)}% matched the key` : ' ';
+}
+
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - live.lastFrame) / 1000 || 0);
+  live.lastFrame = ts;
+  if (live.running) stepLive(dt);
+  drawLive();
+  updateLiveKpis();
+  requestAnimationFrame(frame);
+}
+
+$('liveToggle').addEventListener('click', () => {
+  live.running = !live.running;
+  $('liveToggle').textContent = live.running ? 'Pause' : 'Start';
+  if (live.running) live.dispatchAt = performance.now();
+});
+$('speed').addEventListener('input', e => {
+  live.speed = parseInt(e.target.value, 10) / 10;
+  $('speedVal').textContent = live.speed.toFixed(1) + '×';
+});
+$('couriers').addEventListener('input', e => {
+  live.courierCount = parseInt(e.target.value, 10);
+  $('courierVal').textContent = live.courierCount;
+  syncCouriers();
+});
+$('liveBatch').addEventListener('change', e => { live.batch = parseInt(e.target.value, 10); });
+
+syncCouriers();
+requestAnimationFrame(frame);
+
 /* --- boot -------------------------------------------------------------- */
 
 $('run').addEventListener('click', runBenchmark);
@@ -580,6 +888,7 @@ fetch(PROXY, { headers: { Accept: 'application/json' } })
     if (!info.configured) {
       setStatus('Proxy found, but TYPESAFE_API_KEY is not set on the server.', true);
       $('run').disabled = true;
+      $('liveToggle').disabled = true;
     } else {
       setStatus(`Ready — ${info.model} via the server proxy. Each run classifies all ${CORPUS.length} tickets, uncached.`);
     }
@@ -587,6 +896,7 @@ fetch(PROXY, { headers: { Accept: 'application/json' } })
   .catch(() => {
     setStatus('No api/typesafe proxy on this host, so the model cannot be reached from the browser. The keyword baseline above still runs.', true);
     $('run').disabled = true;
+    $('liveToggle').disabled = true;
   });
 </script>
 </body>
