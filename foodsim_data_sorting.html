@@ -799,6 +799,23 @@ const tanh = (x) => Math.tanh(x);
 const NET_HIDDEN_MIN = 8;
 const NET_HIDDEN_MAX = 40;
 let NET_INPUTS = CFG.inputs;
+
+/*
+ * The policy network's input vector, in the exact order Agent.getState() fills
+ * it. Both the brain visualisation and the sensor overlay index into that
+ * vector, and they used to carry their own idea of the layout - which had
+ * drifted out of step with getState(), mislabelling the brain panel and drawing
+ * the wall sensor from the speed input. Everything reads this instead.
+ */
+const INPUT_LABELS = [
+    'Ticket_X', 'Ticket_Y',
+    'Inc_X', 'Inc_Y', 'Req_X', 'Req_Y', 'Prob_X', 'Prob_Y',
+    'Wall_Dist',
+    'Carry_INC', 'Carry_REQ', 'Carry_PROB',
+    'Energy', 'Speed',
+    'Ticket_Dist'
+];
+const INPUT_IDX = INPUT_LABELS.reduce((map, name, i) => { map[name] = i; return map; }, {});
 let NET_OUTPUTS = CFG.outputs;
 let NET_HIDDEN = CFG.hiddens;
 
@@ -1822,8 +1839,8 @@ class Agent {
       if(!document.getElementById('chkSensors')?.checked) return;
       
       const inputs = this.lastState;
-      const wallInput = inputs[13]; 
-      const ticketDistInput = inputs[14]; 
+      const wallInput = inputs[INPUT_IDX.Wall_Dist];
+      const ticketDistInput = inputs[INPUT_IDX.Ticket_Dist];
       const sensorRange = this.lastSensorRange || CFG.sensorRange;
 
       ctx.globalAlpha = 0.5;
@@ -2243,13 +2260,7 @@ function drawBrain(agent) {
     
     // Input Nodes (State)
     brainCtx.textAlign = 'right';
-    const inputLabels = [
-        'Ticket_X', 'Ticket_Y',
-        'Inc_X', 'Inc_Y', 'Req_X', 'Req_Y', 'Prob_X', 'Prob_Y',
-        'Carry_INC', 'Carry_REQ', 'Carry_PROB',
-        'Energy', 'Speed',
-        'Wall_Dist', 'Ticket_Dist'
-    ];
+    const inputLabels = INPUT_LABELS;
     for(let i=0; i<CFG.inputs; i++) {
         const val = agent.lastState[i] || 0;
         const c = Math.round(clamp(val, 0, 1) * 255);
