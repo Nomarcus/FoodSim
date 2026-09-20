@@ -192,6 +192,20 @@
       <div class="kpi"><div class="label">Judgments</div><div class="value" id="lJudg">0</div><div class="sub">3 per ticket, one round trip</div></div>
       <div class="kpi"><div class="label">Needs a human</div><div class="value" id="lEsc">0</div><div class="sub">flagged by the model</div></div>
     </div>
+    <div class="panel" id="binPanel" style="display:none; margin-top:12px; background:var(--surface-2)">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+        <h2 id="binPanelTitle" style="margin:0">Bin</h2>
+        <button id="binClose" style="padding:4px 10px">Close</button>
+      </div>
+      <div class="scroll" style="max-height:300px; margin-top:10px">
+        <table>
+          <thead><tr><th style="width:52%">Ticket</th><th>Key</th><th>Urgency</th><th>Human?</th><th></th></tr></thead>
+          <tbody id="binRows"></tbody>
+        </table>
+      </div>
+      <div class="note" id="binNote"></div>
+    </div>
+
     <div class="note" id="liveNote">
       Couriers take the straight line to the nearest package, pick it up and carry it
       to the bin. The package stays grey with a <strong>?</strong> until Jev answers —
@@ -750,6 +764,7 @@ const live = {
   dispatchAt: 0,
   flashes: [],
   binCounts: [0, 0, 0],
+  binTickets: [[], [], []],   // last N delivered per bin, for the click-through
   judgments: 0,
   escalated: 0,
   collisions: 0
@@ -921,7 +936,10 @@ function stepLive(dt) {
     c.y = Math.max(top - 34, Math.min(h - 12, c.y));
 
     // --- arrivals --------------------------------------------------------
-    if (c.phase === 'seek' && c.pkg && Math.hypot(c.pkg.x - c.x, c.pkg.y - c.y) < 12) {
+    if (c.phase === 'seek' && c.pkg && Math.hypot(c.pkg.x - c.x, c.pkg.y - c.y) < 7) {
+      // Snap onto the package before lifting it. At speed a courier can step
+      // past in one frame, which looks like picking up out of thin air.
+      c.x = c.pkg.x; c.y = c.pkg.y;
       const ticket = { entry: nextEntry(), resolved: false, label: null };
       c.ticket = ticket;
       live.queued.push(ticket);
@@ -938,6 +956,13 @@ function stepLive(dt) {
         live.recent.push(now);
         live.binCounts[idx]++;
         live.flashes.push({ x: c.x, y: c.y, t: now, idx, ok: c.ticket.correct });
+        const bucket = live.binTickets[idx];
+        bucket.unshift({
+          text: c.ticket.entry.text, gold: c.ticket.entry.gold,
+          label: c.ticket.label, correct: c.ticket.correct,
+          urgency: c.ticket.urgency, escalate: c.ticket.escalate
+        });
+        if (bucket.length > 120) bucket.pop();
       }
       c.ticket = null;
       c.phase = 'seek';
@@ -1016,11 +1041,14 @@ function drawLive() {
   const cwid = sctx.measureText(chipText).width + 26;
   sctx.globalAlpha = busy ? 0.55 + 0.45 * Math.sin(performance.now() / 150) : 0.35;
   sctx.strokeStyle = busy ? warn : ink3; sctx.lineWidth = 1.5;
-  roundRect(w / 2 - cwid / 2, top - 32, cwid, 22, 11);
+  const chipX = 14, chipY = h - 30;
+  roundRect(chipX, chipY, cwid, 22, 11);
   sctx.stroke();
   sctx.globalAlpha = 1;
   sctx.fillStyle = busy ? warn : ink3;
-  sctx.fillText(chipText, w / 2, top - 17);
+  sctx.textAlign = 'left';
+  sctx.fillText(chipText, chipX + 13, chipY + 15);
+  sctx.textAlign = 'center';
 
   // Packages waiting on the field
   live.packages.forEach(p => {
@@ -1033,10 +1061,14 @@ function drawLive() {
   // Landing flashes
   live.flashes.forEach(f => {
     const age = (performance.now() - f.t) / 650;
+    // A square, and a small one: expanding circles spilled across the
+    // neighbouring bins and read as if a ticket had landed in both.
+    const r = 7 + age * 13;
     sctx.globalAlpha = (1 - age) * 0.8;
     sctx.strokeStyle = f.ok ? colors[f.idx] : crit;
     sctx.lineWidth = 2.5;
-    sctx.beginPath(); sctx.arc(f.x, f.y, 6 + age * 26, 0, Math.PI * 2); sctx.stroke();
+    roundRect(f.x - r, f.y - r, r * 2, r * 2, 3);
+    sctx.stroke();
     sctx.globalAlpha = 1;
   });
 
@@ -1086,8 +1118,10 @@ function drawLive() {
         sctx.fillText('?', c.x, c.y - 7);
       } else if (c.ticket.resolvedAt && performance.now() - c.ticket.resolvedAt < 380) {
         const age = (performance.now() - c.ticket.resolvedAt) / 380;
+        const rr = 9 + age * 12;
         sctx.globalAlpha = 1 - age; sctx.strokeStyle = col; sctx.lineWidth = 2;
-        sctx.beginPath(); sctx.arc(c.x, c.y - 10, 9 + age * 16, 0, Math.PI * 2); sctx.stroke();
+        roundRect(c.x - rr, c.y - 10 - rr, rr * 2, rr * 2, 3);
+        sctx.stroke();
         sctx.globalAlpha = 1;
       }
     }
@@ -1149,6 +1183,49 @@ $('liveFull').addEventListener('click', () => {
   else if (panel.requestFullscreen) panel.requestFullscreen();
   if (!live.running) $('liveToggle').click();
 });
+/** Which bin, if any, a canvas point falls in. */
+function binAt(px, py) {
+  const { w } = stageSize();
+  if (py < 14 || py > 60) return -1;
+  const i = Math.floor(px / (w / 3));
+  return (i >= 0 && i < 3) ? i : -1;
+}
+
+function openBin(idx) {
+  const rows = live.binTickets[idx];
+  $('binPanelTitle').textContent = `${NAME[LABELS[idx]]} \u00b7 ${live.binCounts[idx]} sorted here`;
+  $('binRows').innerHTML = rows.length
+    ? rows.map(r => `<tr>
+        <td>${escapeHtml(r.text.length > 120 ? r.text.slice(0, 120) + '\u2026' : r.text)}</td>
+        <td><span class="tag"><span class="dot" style="background:${COLOR[r.gold]}"></span>${NAME[r.gold]}</span></td>
+        <td class="mono">${typeof r.urgency === 'number' ? r.urgency.toFixed(1) : '\u2014'}</td>
+        <td class="mono">${typeof r.escalate === 'number'
+            ? (r.escalate >= 0.5 ? `<span style="color:var(--warning)">\u25c6 ${(r.escalate * 100).toFixed(0)}%</span>`
+                                 : `${(r.escalate * 100).toFixed(0)}%`)
+            : '\u2014'}</td>
+        <td class="verdict ${r.correct ? 'ok' : 'no'}">${r.correct ? '\u2713' : '\u2717'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="color:var(--ink-3)">Nothing sorted here yet.</td></tr>';
+
+  const wrong = rows.filter(r => !r.correct).length;
+  $('binNote').innerHTML = rows.length
+    ? `Newest first, last ${rows.length} kept. <strong>${wrong}</strong> of these did not match the ` +
+      `answer key &mdash; the Key column shows where each one belonged.`
+    : '';
+  $('binPanel').style.display = 'block';
+}
+
+stage.addEventListener('click', e => {
+  const r = stage.getBoundingClientRect();
+  const idx = binAt(e.clientX - r.left, e.clientY - r.top);
+  if (idx >= 0) openBin(idx);
+});
+stage.addEventListener('mousemove', e => {
+  const r = stage.getBoundingClientRect();
+  stage.style.cursor = binAt(e.clientX - r.left, e.clientY - r.top) >= 0 ? 'pointer' : 'default';
+});
+$('binClose').addEventListener('click', () => { $('binPanel').style.display = 'none'; });
+
 addEventListener('resize', syncField);
 
 syncField();
