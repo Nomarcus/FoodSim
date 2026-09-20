@@ -260,28 +260,61 @@
     this.listeners = [];
   }
 
-  /** Per-classifier tally against the gold labels. */
+  /**
+   * Per-classifier verdicts, keyed by ticket text so each ticket counts ONCE
+   * however many times the simulation draws it. Counting handouts instead would
+   * weight the score by how often a ticket happens to be drawn and inflate the
+   * denominator into the tens of thousands.
+   */
   TicketLabeler.prototype.resetScores = function () {
     this.stats = { requests: 0, labelled: 0, cacheHits: 0, inputTokens: 0, outputTokens: 0, failures: 0 };
-    this.scores = {
-      jev: { correct: 0, graded: 0, confidenceSum: 0 },
-      keyword: { correct: 0, graded: 0, confidenceSum: 0 }
-    };
+    this.verdicts = { jev: {}, keyword: {} };
+    this.scoreKeywordCorpus();
   };
 
-  /** Classifier accuracy against the answer key, or null before any tickets. */
+  /**
+   * The baseline is local and free, so score it over the whole corpus up front.
+   * That way there is always something to compare the model against, without
+   * having to run the simulation in baseline mode first.
+   */
+  TicketLabeler.prototype.scoreKeywordCorpus = function () {
+    for (var i = 0; i < this.corpus.length; i++) {
+      var entry = this.corpus[i];
+      this.verdicts.keyword[entry.text] = classifyKeyword(entry.text).label === entry.gold;
+    }
+  };
+
+  /** How many of the corpus's tickets this classifier has been scored on. */
+  TicketLabeler.prototype.coverage = function (which) {
+    return Object.keys(this.verdicts[which || this.classifier] || {}).length;
+  };
+
+  TicketLabeler.prototype.corpusSize = function () {
+    return this.corpus.length;
+  };
+
+  /** Accuracy over unique tickets, or null before any have been scored. */
   TicketLabeler.prototype.accuracy = function (which) {
-    var s = this.scores[which || this.classifier];
-    if (!s || !s.graded) return null;
-    return s.correct / s.graded;
+    var v = this.verdicts[which || this.classifier];
+    if (!v) return null;
+    var keys = Object.keys(v);
+    if (!keys.length) return null;
+    var correct = 0;
+    for (var i = 0; i < keys.length; i++) if (v[keys[i]]) correct++;
+    return correct / keys.length;
   };
 
-  TicketLabeler.prototype.record = function (which, predicted, gold, confidence) {
-    var s = this.scores[which];
-    if (!s) return;
-    s.graded++;
-    if (predicted === gold) s.correct++;
-    if (typeof confidence === 'number') s.confidenceSum += confidence;
+  TicketLabeler.prototype.correctCount = function (which) {
+    var v = this.verdicts[which || this.classifier];
+    if (!v) return 0;
+    var keys = Object.keys(v), correct = 0;
+    for (var i = 0; i < keys.length; i++) if (v[keys[i]]) correct++;
+    return correct;
+  };
+
+  TicketLabeler.prototype.record = function (which, text, predicted, gold) {
+    if (!this.verdicts[which]) return;
+    this.verdicts[which][text] = predicted === gold;
   };
 
   TicketLabeler.prototype.cacheKey = function (text) {
@@ -442,7 +475,7 @@
   };
 
   TicketLabeler.prototype.push = function (entry, prediction, cached) {
-    this.record(this.classifier, prediction.label, entry.gold, prediction.confidence);
+    this.record(this.classifier, entry.text, prediction.label, entry.gold);
     this.pool.push({
       text: entry.text,
       gold: entry.gold,
@@ -625,7 +658,8 @@
 
   TicketLabeler.prototype.describeStatus = function () {
     var acc = this.accuracy();
-    var accText = (acc === null) ? '' : ' · ' + (acc * 100).toFixed(0) + '% vs gold';
+    var accText = (acc === null) ? '' : ' · ' + (acc * 100).toFixed(0) + '% vs gold (' +
+      this.correctCount() + '/' + this.coverage() + ')';
 
     switch (this.status) {
       case 'off': return 'Synthetic categories (classifier off)';
