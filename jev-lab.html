@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jev Lab</title>
+<style>
+  /*
+   * Colours come from the validated categorical palette: slots 1-3, which clear
+   * every all-pairs gate in both modes. The simulation's red/green/cyan was not
+   * reused - red vs green is the classic colour-vision confusion, and this page
+   * is mostly about reading three categories against each other.
+   */
+  :root {
+    color-scheme: dark;
+    --surface-0: #0a0d20;
+    --surface-1: #0f1430;
+    --surface-2: #161c3d;
+    --ink-1: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-3: #898781;
+    --grid: #2c3152;
+    --axis: #383d5e;
+
+    --incident: #3987e5;
+    --request:  #d95926;
+    --problem:  #199e70;
+
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+
+    --mono: 'Fira Code', ui-monospace, Consolas, monospace;
+    --ui: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:where(:not([data-theme="dark"])) {
+      color-scheme: light;
+      --surface-0: #f9f9f7;
+      --surface-1: #fcfcfb;
+      --surface-2: #f0efec;
+      --ink-1: #0b0b0b;
+      --ink-2: #52514e;
+      --ink-3: #898781;
+      --grid: #e1e0d9;
+      --axis: #c3c2b7;
+      --incident: #2a78d6;
+      --request:  #eb6834;
+      --problem:  #1baf7a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface-0); color: var(--ink-1);
+    font-family: var(--ui); line-height: 1.5;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 16px 80px; }
+
+  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0 0 24px; color: var(--ink-2); font-size: 14px; max-width: 70ch; }
+  a { color: var(--incident); }
+
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--grid);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .panel h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
+    color: var(--ink-3); margin: 0 0 12px; font-weight: 600;
+  }
+
+  /* Controls sit in one row above the charts. */
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 10px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .5px; }
+  select, button {
+    font-family: var(--ui); font-size: 13px; padding: 7px 12px; border-radius: 7px;
+    background: var(--surface-2); color: var(--ink-1); border: 1px solid var(--axis);
+    cursor: pointer;
+  }
+  button.primary { background: var(--incident); border-color: var(--incident); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .kpi { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; }
+  .kpi .label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-3); }
+  .kpi .value { font-family: var(--mono); font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .kpi .sub { font-size: 11px; color: var(--ink-2); font-family: var(--mono); }
+
+  .status { font-family: var(--mono); font-size: 12px; color: var(--ink-2); margin-top: 12px; min-height: 18px; }
+  .status.err { color: var(--critical); }
+
+  svg { display: block; width: 100%; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .axis-line { stroke: var(--axis); stroke-width: 1; }
+  .axis-text { fill: var(--ink-3); font-size: 10px; font-family: var(--mono); }
+  .bar { fill: var(--incident); }
+  .bar:hover, .cell:hover { opacity: .75; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+       color: var(--ink-3); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  .mono { font-family: var(--mono); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+  .tag { display: inline-flex; align-items: center; white-space: nowrap; }
+
+  /* Probability split: three segments with a 2px surface gap between fills. */
+  .split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; min-width: 110px; }
+  .split span { display: block; }
+
+  .verdict { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+  .verdict.ok { color: var(--good); }
+  .verdict.no { color: var(--critical); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; font-size: 11px; color: var(--ink-2); }
+  .legend .tag { gap: 0; }
+
+  .note { font-size: 12px; color: var(--ink-2); margin-top: 10px; }
+  .scroll { max-height: 460px; overflow-y: auto; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .12s;
+    background: var(--surface-2); border: 1px solid var(--axis); border-radius: 6px;
+    padding: 7px 10px; font-size: 11px; font-family: var(--mono); color: var(--ink-1);
+    z-index: 50; max-width: 280px; box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  }
+  @media (max-width: 640px) {
+    .kpi .value { font-size: 19px; }
+    td, th { padding: 6px 5px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Jev Lab</h1>
+    <p>
+      A benchmark for TypeSafe's System One model, on its own: how fast it turns
+      support-ticket text into a typed decision, and how often that decision is
+      right. Every ticket is scored against a hand-written answer key the model
+      never sees, and a keyword-rule baseline runs on the same text for contrast.
+      The sorting simulation is <a href="foodsim_data_sorting.html">on its own page</a>.
+    </p>
+  </header>
+
+  <div class="panel">
+    <h2>Run</h2>
+    <div class="controls">
+      <div class="field">
+        <label for="batch">Tickets per request</label>
+        <select id="batch">
+          <option value="1">1 — one round trip each</option>
+          <option value="4">4</option>
+          <option value="8" selected>8 — default</option>
+          <option value="16">16</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mode">Requests</label>
+        <select id="mode">
+          <option value="serial" selected>Sequential — clean latency</option>
+          <option value="parallel">Parallel — fastest wall clock</option>
+        </select>
+      </div>
+      <button class="primary" id="run">Run benchmark</button>
+      <button id="runBaseline">Run keyword baseline</button>
+    </div>
+    <div class="status" id="status">Ready. The whole 48-ticket corpus is classified on each run, uncached.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Results</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Accuracy vs key</div><div class="value" id="kAcc">—</div><div class="sub" id="kAccSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Median latency</div><div class="value" id="kP50">—</div><div class="sub" id="kP50Sub">per request</div></div>
+      <div class="kpi"><div class="label">95th pct latency</div><div class="value" id="kP95">—</div><div class="sub">per request</div></div>
+      <div class="kpi"><div class="label">Throughput</div><div class="value" id="kTput">—</div><div class="sub">tickets / second</div></div>
+      <div class="kpi"><div class="label">Decision time</div><div class="value" id="kPer">—</div><div class="sub">per ticket, amortised</div></div>
+      <div class="kpi"><div class="label">Tokens / ticket</div><div class="value" id="kTok">—</div><div class="sub" id="kTokSub">in + out</div></div>
+    </div>
+    <div class="note" id="compare"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Latency per request</h2>
+    <svg id="latChart" height="180" role="img" aria-label="Latency of each request in milliseconds"></svg>
+    <div class="note" id="latNote">Run a benchmark to populate.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Where it was wrong</h2>
+    <div class="legend">
+      <span class="tag"><span class="dot" style="background:var(--incident)"></span>Incident</span>
+      <span class="tag"><span class="dot" style="background:var(--request)"></span>Service Req</span>
+      <span class="tag"><span class="dot" style="background:var(--problem)"></span>Problem</span>
+    </div>
+    <svg id="cmChart" height="210" role="img" aria-label="Confusion matrix of answer key against prediction"></svg>
+    <div class="note">Rows are the answer key, columns what the model chose. Off-diagonal cells are the mistakes.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Decisions</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th style="width:44%">Ticket</th><th>Key</th><th>Chose</th><th style="width:130px">Probabilities</th><th>Conf</th><th></th></tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="6" style="color:var(--ink-3)">No run yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+<div id="tooltip"></div>
+
+<script src="typesafe-tickets.js"></script>
+<script>
+/*
+ * This page talks to the same-origin proxy directly rather than reusing the
+ * simulation's TicketLabeler: that class is built around a pool that hides
+ * latency, which is exactly what we are trying to measure here.
+ */
+const PROXY = 'api/typesafe';
+const LABELS = TypeSafeTickets.LABELS;
+const CORPUS = TypeSafeTickets.CORPUS;
+const CRITERIA = TypeSafeTickets.CRITERIA;
+const COLOR = { incident: 'var(--incident)', request: 'var(--request)', problem: 'var(--problem)' };
+const NAME = { incident: 'Incident', request: 'Service Req', problem: 'Problem' };
+
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+const tooltip = $('tooltip');
+
+let baseline = null;   // { accuracy, correct }
+let lastRun = null;
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('err', !!isError);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function percentile(sorted, p) {
+  if (!sorted.length) return 0;
+  const i = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[i];
+}
+
+function fmtMs(ms) {
+  return ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms';
+}
+
+/** One request: N tickets as N independent choice questions over shared state. */
+function buildPayload(entries) {
+  const state = { tickets: [] };
+  const questions = {};
+  entries.forEach((e, i) => {
+    state.tickets.push({ index: i, text: e.text });
+    questions['ticket_' + i] = {
+      type: 'choice',
+      instructions: 'Classify the support ticket in `tickets[' + i + '].text`.',
+      criteria: CRITERIA
+    };
+  });
+  return { state, questions };
+}
+
+async function sendBatch(entries) {
+  const started = performance.now();
+  const res = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify(buildPayload(entries))
+  });
+  const text = await res.text();
+  const latency = performance.now() - started;
+
+  if (!res.ok) {
+    let detail = text.slice(0, 200);
+    try { detail = (JSON.parse(text).error) || detail; } catch (e) { /* keep raw */ }
+    const err = new Error('HTTP ' + res.status + ': ' + detail);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = JSON.parse(text);
+  const results = entries.map((entry, i) => {
+    const a = (data.answers || {})['ticket_' + i];
+    const predicted = a && LABELS.includes(a.choice) ? a.choice : null;
+    return {
+      text: entry.text, gold: entry.gold, predicted,
+      confidence: a ? a.confidence : null,
+      probabilities: a ? a.probabilities : null,
+      correct: predicted === entry.gold,
+      latency
+    };
+  });
+
+  return { latency, results, usage: data.usage || { input_tokens: 0, output_tokens: 0 } };
+}
+
+async function runBenchmark() {
+  const size = parseInt($('batch').value, 10);
+  const parallel = $('mode').value === 'parallel';
+
+  const batches = [];
+  for (let i = 0; i < CORPUS.length; i += size) batches.push(CORPUS.slice(i, i + size));
+
+  $('run').disabled = true;
+  $('runBaseline').disabled = true;
+  setStatus(`Classifying ${CORPUS.length} tickets in ${batches.length} request${batches.length === 1 ? '' : 's'}…`);
+
+  const wallStart = performance.now();
+  let packets;
+
+  try {
+    if (parallel) {
+      packets = await Promise.all(batches.map(sendBatch));
+    } else {
+      packets = [];
+      for (let i = 0; i < batches.length; i++) {
+        packets.push(await sendBatch(batches[i]));
+        setStatus(`Request ${i + 1} of ${batches.length}…`);
+      }
+    }
+  } catch (err) {
+    const hint = (err.status === undefined)
+      ? 'Request failed. This page needs the api/typesafe proxy — it cannot call the API directly (CORS).'
+      : err.message;
+    setStatus(hint, true);
+    $('run').disabled = false;
+    $('runBaseline').disabled = false;
+    return;
+  }
+
+  const wall = performance.now() - wallStart;
+  const results = packets.flatMap(p => p.results);
+  const latencies = packets.map(p => p.latency).sort((a, b) => a - b);
+  const tokensIn = packets.reduce((s, p) => s + (p.usage.input_tokens || 0), 0);
+  const tokensOut = packets.reduce((s, p) => s + (p.usage.output_tokens || 0), 0);
+
+  lastRun = {
+    results, latencies, wall, size, parallel,
+    requests: batches.length, tokensIn, tokensOut,
+    correct: results.filter(r => r.correct).length
+  };
+
+  render(lastRun);
+  setStatus(`Done — ${CORPUS.length} tickets, ${batches.length} request${batches.length === 1 ? '' : 's'}, ${fmtMs(wall)} wall clock.`);
+  $('run').disabled = false;
+  $('runBaseline').disabled = false;
+}
+
+function runBaseline() {
+  const started = performance.now();
+  const results = CORPUS.map(e => {
+    const p = TypeSafeTickets.classifyKeyword(e.text);
+    return { ...e, predicted: p.label, correct: p.label === e.gold };
+  });
+  const wall = performance.now() - started;
+  const correct = results.filter(r => r.correct).length;
+  baseline = { accuracy: correct / results.length, correct, total: results.length, wall };
+  setStatus(`Keyword baseline: ${correct}/${results.length} correct in ${wall.toFixed(1)} ms — no network, no model.`);
+  renderCompare();
+}
+
+function renderCompare() {
+  const el = $('compare');
+  if (!baseline && !lastRun) { el.textContent = ''; return; }
+  const parts = [];
+  if (baseline) {
+    parts.push(`Keyword baseline: <strong>${(baseline.accuracy * 100).toFixed(0)}%</strong> (${baseline.correct}/${baseline.total}) in ${baseline.wall.toFixed(1)} ms, entirely local.`);
+  }
+  if (lastRun && baseline) {
+    const jev = lastRun.correct / lastRun.results.length;
+    const diff = (jev - baseline.accuracy) * 100;
+    parts.push(diff >= 0
+      ? `Jev is <strong>${diff.toFixed(0)} points</strong> ahead on the same 48 tickets — the cost of that gap is the network round trip.`
+      : `The baseline is <strong>${(-diff).toFixed(0)} points</strong> ahead here.`);
+  }
+  el.innerHTML = parts.join(' ');
+}
+
+function render(run) {
+  const n = run.results.length;
+  const acc = run.correct / n;
+
+  $('kAcc').textContent = (acc * 100).toFixed(0) + '%';
+  $('kAcc').style.color = acc >= 0.85 ? 'var(--good)' : acc >= 0.7 ? 'var(--warning)' : 'var(--critical)';
+  $('kAccSub').textContent = `${run.correct}/${n} correct`;
+
+  $('kP50').textContent = fmtMs(percentile(run.latencies, 0.5));
+  $('kP50Sub').textContent = `${run.requests} request${run.requests === 1 ? '' : 's'} of ${run.size}`;
+  $('kP95').textContent = fmtMs(percentile(run.latencies, 0.95));
+  $('kTput').textContent = (n / (run.wall / 1000)).toFixed(1);
+  $('kPer').textContent = fmtMs(run.wall / n);
+
+  const tokens = run.tokensIn + run.tokensOut;
+  $('kTok').textContent = tokens ? Math.round(tokens / n) : '—';
+  $('kTokSub').textContent = tokens ? `${run.tokensIn} in · ${run.tokensOut} out` : 'not reported';
+
+  drawLatency(run);
+  drawConfusion(run.results);
+  drawRows(run.results);
+  renderCompare();
+
+  $('latNote').innerHTML = run.parallel
+    ? `All ${run.requests} requests in flight at once, so per-request latency overlaps — wall clock ${fmtMs(run.wall)}.`
+    : `Sequential, so wall clock (${fmtMs(run.wall)}) is the sum of these bars.`;
+}
+
+/* --- charts ----------------------------------------------------------- */
+
+function showTip(evt, html) {
+  tooltip.innerHTML = html;
+  tooltip.style.opacity = 1;
+  const pad = 14;
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  const r = tooltip.getBoundingClientRect();
+  if (x + r.width > innerWidth) x = evt.clientX - r.width - pad;
+  if (y + r.height > innerHeight) y = evt.clientY - r.height - pad;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+}
+function hideTip() { tooltip.style.opacity = 0; }
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function drawLatency(run) {
+  const svg = $('latChart');
+  svg.innerHTML = '';
+  const W = svg.clientWidth || 800, H = 180;
+  const m = { top: 14, right: 8, bottom: 26, left: 52 };
+  const iw = W - m.left - m.right, ih = H - m.top - m.bottom;
+  // Request order for the x axis, not the sorted copy used for percentiles.
+  const perRequest = [];
+  for (let i = 0; i < run.results.length; i += run.size) perRequest.push(run.results[i].latency);
+
+  const max = Math.max(...perRequest, 1);
+  const y = v => ih - (v / max) * ih;
+  const bw = Math.max(3, Math.min(48, iw / perRequest.length - 4));
+
+  const g = svgEl('g', { transform: `translate(${m.left},${m.top})` });
+
+  [0, 0.5, 1].forEach(t => {
+    const v = max * t;
+    g.appendChild(svgEl('line', { x1: 0, x2: iw, y1: y(v), y2: y(v), class: t === 0 ? 'axis-line' : 'grid-line' }));
+    const label = svgEl('text', { x: -8, y: y(v) + 3, class: 'axis-text', 'text-anchor': 'end' });
+    label.textContent = Math.round(v) + (t === 1 ? ' ms' : '');
+    g.appendChild(label);
+  });
+
+  perRequest.forEach((v, i) => {
+    const x = (iw / perRequest.length) * i + (iw / perRequest.length - bw) / 2;
+    const h = Math.max(2, ih - y(v));
+    // 4px rounded data-end, anchored to the baseline.
+    const r = Math.min(4, bw / 2, h);
+    const bar = svgEl('path', {
+      class: 'bar',
+      d: `M${x},${ih} L${x},${ih - h + r} Q${x},${ih - h} ${x + r},${ih - h} L${x + bw - r},${ih - h} Q${x + bw},${ih - h} ${x + bw},${ih - h + r} L${x + bw},${ih} Z`
+    });
+    bar.addEventListener('mousemove', e => showTip(e,
+      `Request ${i + 1} of ${perRequest.length}<br>${fmtMs(v)}<br>${run.size} ticket${run.size === 1 ? '' : 's'}`));
+    bar.addEventListener('mouseleave', hideTip);
+    g.appendChild(bar);
+  });
+
+  const xl = svgEl('text', { x: iw / 2, y: ih + 20, class: 'axis-text', 'text-anchor': 'middle' });
+  xl.textContent = `request order (${perRequest.length} total)`;
+  g.appendChild(xl);
+
+  svg.appendChild(g);
+}
+
+function drawConfusion(results) {
+  const svg = $('cmChart');
+  svg.innerHTML = '';
+  const W = svg.clientWidth || 800, H = 210;
+  const m = { top: 24, right: 8, bottom: 20, left: 96 };
+  const iw = W - m.left - m.right, ih = H - m.top - m.bottom;
+  const cw = iw / 3, ch = ih / 3;
+
+  const counts = {};
+  LABELS.forEach(g => { counts[g] = {}; LABELS.forEach(p => counts[g][p] = 0); });
+  results.forEach(r => { if (r.predicted) counts[r.gold][r.predicted]++; });
+  const max = Math.max(1, ...LABELS.flatMap(g => LABELS.map(p => counts[g][p])));
+
+  const g = svgEl('g', { transform: `translate(${m.left},${m.top})` });
+
+  LABELS.forEach((p, ci) => {
+    const t = svgEl('text', { x: ci * cw + cw / 2, y: -8, class: 'axis-text', 'text-anchor': 'middle' });
+    t.textContent = NAME[p];
+    g.appendChild(t);
+  });
+
+  LABELS.forEach((gold, ri) => {
+    const rl = svgEl('text', { x: -10, y: ri * ch + ch / 2 + 3, class: 'axis-text', 'text-anchor': 'end' });
+    rl.textContent = NAME[gold];
+    g.appendChild(rl);
+
+    LABELS.forEach((pred, ci) => {
+      const v = counts[gold][pred];
+      const onDiagonal = gold === pred;
+      // Sequential magnitude in a single hue; the diagonal keeps the category's
+      // own colour so correct and incorrect read apart without relying on it.
+      const cell = svgEl('rect', {
+        class: 'cell',
+        x: ci * cw + 1, y: ri * ch + 1, width: cw - 2, height: ch - 2, rx: 4,
+        fill: onDiagonal ? COLOR[gold] : 'var(--critical)',
+        'fill-opacity': v === 0 ? 0.06 : (0.22 + 0.78 * (v / max))
+      });
+      cell.addEventListener('mousemove', e => showTip(e,
+        `Key: ${NAME[gold]}<br>Chose: ${NAME[pred]}<br><strong>${v} ticket${v === 1 ? '' : 's'}</strong>`));
+      cell.addEventListener('mouseleave', hideTip);
+      g.appendChild(cell);
+
+      if (v > 0) {
+        const t = svgEl('text', {
+          x: ci * cw + cw / 2, y: ri * ch + ch / 2 + 5,
+          'text-anchor': 'middle', fill: 'var(--ink-1)',
+          style: 'font-size:14px;font-weight:700;font-family:var(--mono)'
+        });
+        t.textContent = v;
+        g.appendChild(t);
+      }
+    });
+  });
+
+  svg.appendChild(g);
+}
+
+function drawRows(results) {
+  const tbody = $('rows');
+  // Mistakes first - they are the interesting rows.
+  const ordered = results.slice().sort((a, b) => (a.correct === b.correct) ? 0 : (a.correct ? 1 : -1));
+
+  tbody.innerHTML = ordered.map(r => {
+    const probs = r.probabilities || {};
+    const split = LABELS.map(l => {
+      const pct = ((probs[l] || 0) * 100).toFixed(1);
+      return `<span style="width:${pct}%;background:${COLOR[l]}" title="${NAME[l]} ${pct}%"></span>`;
+    }).join('');
+    const conf = (typeof r.confidence === 'number') ? (r.confidence * 100).toFixed(0) + '%' : '—';
+    return `<tr>
+      <td>${escapeHtml(r.text.length > 110 ? r.text.slice(0, 110) + '…' : r.text)}</td>
+      <td><span class="tag"><span class="dot" style="background:${COLOR[r.gold]}"></span>${NAME[r.gold]}</span></td>
+      <td><span class="tag"><span class="dot" style="background:${r.predicted ? COLOR[r.predicted] : 'var(--ink-3)'}"></span>${r.predicted ? NAME[r.predicted] : '—'}</span></td>
+      <td><div class="split">${split}</div></td>
+      <td class="mono">${conf}</td>
+      <td class="verdict ${r.correct ? 'ok' : 'no'}">${r.correct ? '✓' : '✗'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* --- boot -------------------------------------------------------------- */
+
+$('run').addEventListener('click', runBenchmark);
+$('runBaseline').addEventListener('click', runBaseline);
+addEventListener('resize', () => { if (lastRun) { drawLatency(lastRun); drawConfusion(lastRun.results); } });
+
+// The baseline is free, so it is always on screen to compare against.
+runBaseline();
+
+fetch(PROXY, { headers: { Accept: 'application/json' } })
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(info => {
+    if (!info || info.proxy !== true) throw new Error();
+    if (!info.configured) {
+      setStatus('Proxy found, but TYPESAFE_API_KEY is not set on the server.', true);
+      $('run').disabled = true;
+    } else {
+      setStatus(`Ready — ${info.model} via the server proxy. Each run classifies all ${CORPUS.length} tickets, uncached.`);
+    }
+  })
+  .catch(() => {
+    setStatus('No api/typesafe proxy on this host, so the model cannot be reached from the browser. The keyword baseline above still runs.', true);
+    $('run').disabled = true;
+  });
+</script>
+</body>
+</html>
