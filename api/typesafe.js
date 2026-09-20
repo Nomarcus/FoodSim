@@ -1,0 +1,107 @@
+/*
+ * Server-side proxy for the TypeSafe API.
+ *
+ * The browser cannot call api.typesafe.ai directly - it has no CORS headers for
+ * our origin, so the request fails before it leaves the page. This function
+ * forwards the call from the server instead, which also keeps the API key out
+ * of the browser entirely: it lives in the TYPESAFE_API_KEY environment
+ * variable and is never sent to the client.
+ *
+ * GET  -> health probe, so the page can tell whether a proxy is available.
+ * POST -> forwards a System One request body to /v1/systemone.
+ */
+
+const UPSTREAM = process.env.TYPESAFE_BASE_URL || 'https://api.typesafe.ai';
+const ENDPOINT = '/v1/systemone';
+const DEFAULT_MODEL = process.env.TYPESAFE_DEFAULT_MODEL || 'jev-latest';
+
+// This proxy is deployed publicly with a key attached, so anyone who finds the
+// URL can spend tokens through it. These caps bound what a single call can cost.
+// See the README - use a spend limit on the key as the real backstop.
+const MAX_QUESTIONS = 16;
+const MAX_BODY_BYTES = 64 * 1024;
+const TIMEOUT_MS = 30000;
+
+function send(res, status, payload) {
+  res.setHeader('Content-Type', 'application/json');
+  // The page is served from the same deployment, so no cross-origin grant is
+  // needed. Keeping it closed stops other sites from spending the key.
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(status).send(JSON.stringify(payload));
+}
+
+module.exports = async function handler(req, res) {
+  const configured = !!process.env.TYPESAFE_API_KEY;
+
+  if (req.method === 'GET') {
+    return send(res, 200, { proxy: true, configured: configured, model: DEFAULT_MODEL });
+  }
+
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST');
+    return send(res, 405, { error: 'Method not allowed' });
+  }
+
+  if (!configured) {
+    return send(res, 500, {
+      error: 'TYPESAFE_API_KEY is not set on the server. Add it in the ' +
+             'deployment environment variables and redeploy.'
+    });
+  }
+
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch (e) {
+      return send(res, 400, { error: 'Request body is not valid JSON' });
+    }
+  }
+
+  if (!body || typeof body !== 'object' || !body.questions || !body.state) {
+    return send(res, 400, { error: 'Expected a body with "state" and "questions"' });
+  }
+
+  const questionCount = Object.keys(body.questions).length;
+  if (questionCount < 1 || questionCount > MAX_QUESTIONS) {
+    return send(res, 400, { error: 'Expected between 1 and ' + MAX_QUESTIONS + ' questions' });
+  }
+
+  const payload = JSON.stringify({
+    model: typeof body.model === 'string' ? body.model : DEFAULT_MODEL,
+    state: body.state,
+    questions: body.questions
+  });
+
+  if (Buffer.byteLength(payload, 'utf8') > MAX_BODY_BYTES) {
+    return send(res, 413, { error: 'Request body is too large' });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const upstream = await fetch(UPSTREAM + ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + process.env.TYPESAFE_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: payload,
+      signal: controller.signal
+    });
+
+    const text = await upstream.text();
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    // Pass the upstream status through so the page's own retry and halt rules
+    // still see 429s and 401s for what they are.
+    return res.status(upstream.status).send(text);
+  } catch (err) {
+    const aborted = err && err.name === 'AbortError';
+    return send(res, aborted ? 504 : 502, {
+      error: aborted ? 'Upstream request timed out' : 'Upstream request failed'
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+};

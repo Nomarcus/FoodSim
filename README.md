@@ -73,11 +73,31 @@ Implementation notes:
 - Retries are applied to 408/429/5xx with exponential backoff; a 401/403/400/422
   stops labelling so a bad key does not loop against the rate limit.
 
-> **Security:** this mode calls the API directly from the browser, so the API key
-> is readable by anyone who can open the page. It is stored in `localStorage` and
-> never committed. Use it only on a local copy — **do not paste a key into a
-> publicly hosted deployment** (e.g. GitHub Pages). A server-side proxy holding
-> the key is the right approach for anything shared.
+### Deploying: the server proxy
+
+`api.typesafe.ai` sends no CORS headers for arbitrary origins, so a browser
+**cannot** call it directly — the request fails before it leaves the page, which
+Safari reports as `Load failed`. On GitHub Pages or a plain file server, the
+TypeSafe mode therefore cannot work on its own.
+
+`api/typesafe.js` is a serverless function that solves this. Deploy the repo
+somewhere that runs it (Vercel picks up `api/*.js` with no configuration), set
+`TYPESAFE_API_KEY` in the deployment's environment variables, and the page will
+find the proxy automatically on startup: the key field disappears, and requests
+go same-origin.
+
+The page probes `GET api/typesafe` when TypeSafe mode is switched on. If the
+path 404s it falls back to calling the API directly and asks for a key, so the
+same file works both ways.
+
+> **Security:** with the proxy, the key stays on the server and never reaches the
+> browser. Without it, the key is entered in the page and lives in `localStorage` —
+> readable by anyone with access to that browser, and vulnerable to any script
+> later added to the page. It is never committed either way.
+>
+> Note that a public proxy deployment will spend your tokens for anyone who finds
+> the URL. The function caps questions per request (16) and body size (64 KB), but
+> a spend limit on the API key itself is the real backstop.
 
 With the source left on **Synthetic**, the simulation behaves exactly as before
 and makes no network requests.
