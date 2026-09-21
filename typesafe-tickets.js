@@ -192,6 +192,82 @@
     { group: 'phone', text: 'My work phone is four years old, am I due for a replacement?' }
   ];
 
+
+  /*
+   * A second scenario: customer tickets for an office-supplies company, routed
+   * on three axes at once - what kind of ticket it is, which team owns it, and
+   * which product it concerns. This is the shape a first-line service desk
+   * actually needs, and one request settles all three.
+   *
+   * Every ticket carries a hand-written key for all three. `product: 'none'` is
+   * a real answer, not a gap: plenty of tickets are about an account or a
+   * delivery window rather than a thing in the catalogue, and a classifier that
+   * cannot say so will invent a product.
+   */
+  var TEAMS = {
+    order:     'Order Desk \u2014 new orders, quantities, standing deliveries and catalogue questions.',
+    billing:   'Billing \u2014 invoices, credit notes, pricing errors on a bill, payment and statements.',
+    claims:    'Returns & Claims \u2014 goods that arrived damaged, faulty, wrong, or are being sent back.',
+    logistics: 'Logistics \u2014 where and when goods arrive: delays, delivery windows, addresses, couriers.',
+    accounts:  'Account Management \u2014 the commercial relationship: contracts, framework pricing, cost centres, new sites.'
+  };
+
+  var PRODUCTS = {
+    pens:         'Ballpoint pens',
+    highlighters: 'Highlighters',
+    paper:        'A4 copy paper',
+    notebooks:    'Notebooks',
+    stickynotes:  'Sticky notes',
+    binders:      'Ring binders',
+    envelopes:    'Envelopes',
+    toner:        'Printer toner',
+    markers:      'Whiteboard markers',
+    staplers:     'Staplers',
+    clips:        'Paper clips',
+    laminating:   'Laminating pouches',
+    labels:       'Shipping labels',
+    archiveboxes: 'Archive boxes',
+    organisers:   'Desk organisers',
+    none:         'No single product \u2014 the ticket is about an account, a delivery arrangement, a document, or the catalogue as a whole.'
+  };
+
+  var SUPPLY_TICKETS = [
+    { team: 'order', product: 'paper', category: 'request', text: 'Could you add another twenty reams of A4 copy paper to our standing monthly order?' },
+    { team: 'order', product: 'notebooks', category: 'request', text: 'We need sixty lined notebooks for the onboarding week in October.' },
+    { team: 'order', product: 'toner', category: 'request', text: 'Please set up a recurring delivery of printer toner every eight weeks.' },
+    { team: 'order', product: 'markers', category: 'request', text: 'Can we increase the whiteboard marker quantity from two packs to six per drop?' },
+    { team: 'order', product: 'stickynotes', category: 'request', text: 'Add three hundred sticky note blocks to the next shipment please.' },
+    { team: 'order', product: 'organisers', category: 'request', text: 'We would like to trial two desk organisers before ordering for the whole floor.' },
+    { team: 'order', product: 'none', category: 'request', text: 'Could someone send the current catalogue with this year\u2019s prices?' },
+
+    { team: 'billing', product: 'envelopes', category: 'incident', text: 'The invoice for last month lists forty boxes of envelopes but only thirty arrived.' },
+    { team: 'billing', product: 'toner', category: 'incident', text: 'We were charged twice for the same toner delivery in August.' },
+    { team: 'billing', product: 'binders', category: 'incident', text: 'The credit note for the returned ring binders has not appeared on our statement.' },
+    { team: 'billing', product: 'paper', category: 'problem', text: 'Every quarter the copy paper is invoiced at list price instead of our agreed rate. It keeps coming back.' },
+    { team: 'billing', product: 'none', category: 'request', text: 'Can you change the billing address on our account to the new head office?' },
+    { team: 'billing', product: 'none', category: 'request', text: 'Please send copies of all invoices from the first half of the year.' },
+
+    { team: 'claims', product: 'pens', category: 'incident', text: 'Half the ballpoint pens in the last carton were dry on arrival.' },
+    { team: 'claims', product: 'paper', category: 'incident', text: 'Two reams of copy paper arrived water damaged and unusable.' },
+    { team: 'claims', product: 'staplers', category: 'incident', text: 'The staplers we received jam on the third or fourth staple every time.' },
+    { team: 'claims', product: 'highlighters', category: 'incident', text: 'A pack of highlighters leaked in transit and stained the rest of the box.' },
+    { team: 'claims', product: 'labels', category: 'incident', text: 'The shipping labels do not stick \u2014 they peel off within an hour.' },
+    { team: 'claims', product: 'laminating', category: 'problem', text: 'Third delivery running where the laminating pouches are the wrong size. Something is off in how the order is picked.' },
+    { team: 'claims', product: 'clips', category: 'request', text: 'We would like to return an unopened box of paper clips ordered by mistake.' },
+
+    { team: 'logistics', product: 'archiveboxes', category: 'incident', text: 'The pallet of archive boxes due Tuesday still has not reached the Malm\u00f6 site.' },
+    { team: 'logistics', product: 'paper', category: 'incident', text: 'The courier left the paper order outside in the rain.' },
+    { team: 'logistics', product: 'notebooks', category: 'problem', text: 'Shipments of notebooks to the Gothenburg office keep arriving a day late, month after month.' },
+    { team: 'logistics', product: 'none', category: 'request', text: 'Can deliveries be moved to mornings? Our loading bay is blocked after lunch.' },
+    { team: 'logistics', product: 'none', category: 'request', text: 'Please deliver to the rear entrance and call the number on the order.' },
+    { team: 'logistics', product: 'none', category: 'request', text: 'Could you add a second drop point for our Uppsala branch?' },
+
+    { team: 'accounts', product: 'none', category: 'request', text: 'We would like to renegotiate our annual pricing before the contract renews in November.' },
+    { team: 'accounts', product: 'none', category: 'request', text: 'Can you add three new cost centres to our account so departments are billed separately?' },
+    { team: 'accounts', product: 'none', category: 'request', text: 'We are opening two new offices and want them added to the framework agreement.' },
+    { team: 'accounts', product: 'none', category: 'problem', text: 'Our account manager has changed four times this year and nobody knows our setup any more.' }
+  ];
+
   /*
    * The no-AI baseline: the sort of keyword rules you would write if you had to
    * classify these tickets without a model. Deliberately plausible rather than
@@ -750,6 +826,9 @@
     classifyKeyword: classifyKeyword,
     CORPUS: CORPUS,
     DUPLICATES: DUPLICATES,
+    SUPPLY_TICKETS: SUPPLY_TICKETS,
+    TEAMS: TEAMS,
+    PRODUCTS: PRODUCTS,
     CRITERIA: CRITERIA,
     LABELS: LABELS,
     DEFAULT_MODEL: DEFAULT_MODEL,
