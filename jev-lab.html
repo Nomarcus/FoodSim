@@ -139,7 +139,18 @@
     font-size: 11px; color: var(--ink-3); font-style: italic;
   }
 
-  .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 14px; }
+  .seg { display: flex; gap: 0; }
+  .seg-btn {
+    border-radius: 0; border-right-width: 0; font-size: 12px; padding: 7px 11px;
+  }
+  .seg-btn:first-child { border-radius: 7px 0 0 7px; }
+  .seg-btn:last-child { border-radius: 0 7px 7px 0; border-right-width: 1px; }
+  .seg-btn.is-on { background: var(--incident); border-color: var(--incident); color: #fff; font-weight: 600; }
+
+  .board {
+    display: grid; gap: 8px; margin-top: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  }
   .team-col {
     background: var(--surface-0); border: 1px solid var(--grid);
     border-radius: 8px; padding: 8px; min-height: 120px;
@@ -155,7 +166,7 @@
   .chip.wrong { outline: 1.5px solid var(--critical); }
   .chip .prod { font-size: 10px; font-family: var(--mono); color: var(--ink-2); }
   .chip .txt { font-size: 10.5px; line-height: 1.35; margin-top: 2px; }
-  @media (max-width: 860px) { .board { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 620px) { .board { grid-template-columns: repeat(2, 1fr); } }
 
   .lane { margin-top: 14px; }
   .lane-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
@@ -305,6 +316,14 @@
       <button class="primary" id="boardRun">Route tickets</button>
       <button id="boardClear">Clear</button>
       <div class="field">
+        <label>Group by</label>
+        <div class="seg">
+          <button class="seg-btn is-on" data-group="team">Team</button>
+          <button class="seg-btn" data-group="product">Product</button>
+          <button class="seg-btn" data-group="category">Type</button>
+        </div>
+      </div>
+      <div class="field">
         <label for="boardCount">Inbox size</label>
         <select id="boardCount">
           <option value="30" selected>30 — every ticket once</option>
@@ -352,8 +371,10 @@
       each copy is labelled, since identical text arriving twice is precisely where a
       cache would show itself. Tickets leave the pile as the
       answers land, which is the part worth watching: the desk sorts itself. A ticket
-      then sits in the column the model chose. A red border means the key puts it on
-      another desk; hover it to see where it belonged. <strong>"No single
+      then sits in the column the model chose. <strong>Group by</strong> switches the
+      board between team, product and type, so the same routed pile can be broken
+      down three ways without asking again. A red border means the key disagrees on
+      whichever axis you are grouping by; hover it to see where it belonged. <strong>"No single
       product"</strong> is a real answer, not a gap — plenty of tickets are about a
       contract or a delivery window rather than a thing in the catalogue, and a
       classifier without that option will invent one.
@@ -1562,28 +1583,49 @@ function renderInbox() {
   }).join('');
 }
 
+let boardGroupBy = 'team';   // team | product | category
+
+const AXIS = {
+  team:     { label: k => TEAM_NAME(k),            keys: () => TEAM_KEYS },
+  product:  { label: k => PRODUCTS[k].split(' \u2014 ')[0], keys: () => Object.keys(PRODUCTS) },
+  category: { label: k => NAME[k],                 keys: () => LABELS }
+};
+
+/**
+ * Group the routed tickets by whichever axis is selected. A chip's red border
+ * follows the same axis: grouped by product, a chip is wrong when the product
+ * is wrong, not when some other field is.
+ */
 function renderBoard(rows) {
   boardRows = rows;
-  const board = $('board');
-  board.innerHTML = TEAM_KEYS.map(team => {
-    const mine = rows.filter(r => r && r.team === team);
-    return `<div class="team-col">
-      <h3 style="color:var(--ink-1)">${escapeHtml(TEAM_NAME(team))}</h3>
-      <div class="team-count">${mine.length} ticket${mine.length === 1 ? '' : 's'}</div>
-      ${mine.map(r => {
+  const axis = AXIS[boardGroupBy];
+  const placed = rows.filter(Boolean);
+
+  // Sixteen products would mostly be empty columns, so only show the ones in
+  // play. Teams and types are few enough that an empty column is information.
+  const keys = boardGroupBy === 'product'
+    ? axis.keys().filter(k => placed.some(r => r[boardGroupBy] === k))
+    : axis.keys();
+
+  const other = { team: ['product', 'category'], product: ['team', 'category'], category: ['team', 'product'] }[boardGroupBy];
+
+  $('board').innerHTML = keys.map(key => {
+    const mine = placed.filter(r => r[boardGroupBy] === key);
+    return '<div class="team-col">' +
+      '<h3 style="color:var(--ink-1)">' + escapeHtml(axis.label(key)) + '</h3>' +
+      '<div class="team-count">' + mine.length + ' ticket' + (mine.length === 1 ? '' : 's') + '</div>' +
+      mine.map(r => {
         const colour = COLOR[r.category] || 'var(--ink-3)';
-        const wrong = r.team !== r.gold.team;
-        const title = wrong
-          ? `Key: ${TEAM_NAME(r.gold.team)} · ${PRODUCTS[r.gold.product].split(' — ')[0]}`
-          : `Key agrees · ${PRODUCTS[r.gold.product].split(' — ')[0]}`;
-        return `<div class="chip${wrong ? ' wrong' : ''}" style="border-left-color:${colour}"
-                     data-i="${r.index}" title="${escapeHtml(title)}">
-          <div class="prod">${escapeHtml(PRODUCTS[r.product] ? PRODUCTS[r.product].split(' — ')[0] : r.product)}${
-            r.product !== r.gold.product ? ' <span style="color:var(--critical)">✗</span>' : ''}</div>
-          <div class="txt">${escapeHtml(r.text.length > 84 ? r.text.slice(0, 84) + '…' : r.text)}</div>
-        </div>`;
-      }).join('')}
-    </div>`;
+        const wrong = r[boardGroupBy] !== r.gold[boardGroupBy];
+        const sub = other.map(f => AXIS[f].label(r[f]) +
+          (r[f] !== r.gold[f] ? ' <span style="color:var(--critical)">\u2717</span>' : '')).join(' \u00b7 ');
+        return '<div class="chip' + (wrong ? ' wrong' : '') + '" style="border-left-color:' + colour + '"' +
+               ' data-i="' + r.index + '">' +
+          '<div class="prod">' + sub + '</div>' +
+          '<div class="txt">' + escapeHtml(r.text.length > 84 ? r.text.slice(0, 84) + '…' : r.text) + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
   }).join('');
 }
 
@@ -1720,6 +1762,14 @@ $('inbox').addEventListener('mousemove', e => {
 $('inbox').addEventListener('mouseleave', hideTip);
 
 $('boardRun').addEventListener('click', runBoard);
+document.querySelectorAll('.seg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    boardGroupBy = btn.dataset.group;
+    document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('is-on', b === btn));
+    renderBoard(boardRows);
+  });
+});
+
 $('boardCount').addEventListener('change', () => {
   routed = new Set();
   buildWorkSet();
