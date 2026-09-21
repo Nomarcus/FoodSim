@@ -106,6 +106,28 @@
 
 
 
+
+  .inbox-head {
+    display: flex; align-items: baseline; gap: 10px; margin-top: 14px; margin-bottom: 6px;
+  }
+  .inbox-title { font-size: 11px; font-weight: 700; }
+  .inbox-count { font-size: 11px; color: var(--ink-3); }
+  .inbox {
+    display: flex; flex-wrap: wrap; gap: 5px;
+    background: var(--surface-0); border: 1px dashed var(--axis);
+    border-radius: 8px; padding: 8px; min-height: 56px;
+    align-content: flex-start;
+  }
+  .inbox .chip {
+    border-left-color: var(--ink-3); width: 168px; margin-bottom: 0;
+    /* Unclassified on purpose: no colour, no team, no product. That is the
+       state the desk actually starts in. */
+  }
+  .inbox:empty::after {
+    content: "Empty — every ticket has been routed.";
+    font-size: 11px; color: var(--ink-3); font-style: italic;
+  }
+
   .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 14px; }
   .team-col {
     background: var(--surface-0); border: 1px solid var(--grid);
@@ -280,6 +302,12 @@
       <div class="kpi"><div class="label">Judgments</div><div class="value" id="bJudg">—</div><div class="sub" id="bJudgSub">&nbsp;</div></div>
       <div class="kpi"><div class="label">Wall clock</div><div class="value" id="bTime">—</div><div class="sub">for the whole desk</div></div>
     </div>
+    <div class="inbox-head">
+      <span class="inbox-title">Unsorted inbox</span>
+      <span class="inbox-count mono" id="inboxCount">30 waiting</span>
+    </div>
+    <div class="inbox" id="inbox"></div>
+
     <div class="board" id="board"></div>
     <div class="legend" style="margin-top:12px">
       <span class="tag"><span class="dot" style="background:var(--incident)"></span>Incident</span>
@@ -294,8 +322,11 @@
       of eight is 24 judgments in one round trip and the whole desk is sorted in a
       handful of requests.
       <br><br>
-      A ticket sits in the column the model chose. A red border means the key puts it
-      on another desk; hover it to see where it belonged. <strong>"No single
+      Everything starts in the <strong>unsorted inbox</strong> &mdash; no type, no team,
+      no product, because none of that is known yet. Tickets leave the pile as the
+      answers land, which is the part worth watching: the desk sorts itself. A ticket
+      then sits in the column the model chose. A red border means the key puts it on
+      another desk; hover it to see where it belonged. <strong>"No single
       product"</strong> is a real answer, not a gap — plenty of tickets are about a
       contract or a delivery window rather than a thing in the catalogue, and a
       classifier without that option will invent one.
@@ -1462,6 +1493,33 @@ function boardPayload(entries) {
 }
 
 let boardRows = [];
+let inboxOrder = [];    // shuffled, so the pile reads as a real queue
+let routed = new Set();
+
+function shuffleInbox() {
+  inboxOrder = SUPPLY.map((_, i) => i);
+  for (let i = inboxOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [inboxOrder[i], inboxOrder[j]] = [inboxOrder[j], inboxOrder[i]];
+  }
+}
+
+/**
+ * Everything still waiting. Tickets here carry no colour, team or product:
+ * none of that is known until the model has answered, and showing it early
+ * would be pretending the hard part is already done.
+ */
+function renderInbox() {
+  const pending = inboxOrder.filter(i => !routed.has(i));
+  $('inboxCount').textContent = pending.length ? pending.length + ' waiting' : 'all routed';
+  $('inbox').innerHTML = pending.map(i => {
+    const t = SUPPLY[i];
+    return '<div class="chip" data-inbox="' + i + '">' +
+      '<div class="prod">unsorted</div>' +
+      '<div class="txt">' + escapeHtml(t.text.length > 76 ? t.text.slice(0, 76) + '…' : t.text) + '</div>' +
+    '</div>';
+  }).join('');
+}
 
 function renderBoard(rows) {
   boardRows = rows;
@@ -1491,6 +1549,9 @@ function renderBoard(rows) {
 async function runBoard() {
   $('boardRun').disabled = true;
   $('bTime').textContent = '…';
+  routed = new Set();
+  renderInbox();
+  renderBoard([]);
 
   const size = 8;
   const batches = [];
@@ -1526,6 +1587,8 @@ async function runBoard() {
           confidence: { cat: cat && cat.confidence, team: team && team.confidence, prod: prod && prod.confidence }
         };
       });
+      b.items.forEach((_, k) => routed.add(b.from + k));
+      renderInbox();
       renderBoard(rows);
     });
   };
@@ -1582,13 +1645,26 @@ $('board').addEventListener('mousemove', e => {
 });
 $('board').addEventListener('mouseleave', hideTip);
 
+$('inbox').addEventListener('mousemove', e => {
+  const chip = e.target.closest('.chip[data-inbox]');
+  if (!chip) { hideTip(); return; }
+  showTip(e, escapeHtml(SUPPLY[+chip.dataset.inbox].text) +
+             '<br><br><span style="opacity:.6">not classified yet</span>');
+});
+$('inbox').addEventListener('mouseleave', hideTip);
+
 $('boardRun').addEventListener('click', runBoard);
 $('boardClear').addEventListener('click', () => {
+  routed = new Set();
+  shuffleInbox();
+  renderInbox();
   renderBoard([]);
   ['bAll', 'bCat', 'bTeam', 'bProd', 'bJudg', 'bTime'].forEach(id => {
     $(id).textContent = '—'; $(id).style.color = '';
   });
 });
+shuffleInbox();
+renderInbox();
 renderBoard([]);
 
 /* --- race ---------------------------------------------------------------
