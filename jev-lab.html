@@ -107,6 +107,17 @@
 
 
 
+  .proof {
+    margin-top: 14px; padding: 10px 12px;
+    background: var(--surface-0); border: 1px solid var(--grid); border-radius: 8px;
+  }
+  .proof-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--ink-3); margin-bottom: 6px;
+  }
+  .proof-row { font-size: 11px; font-family: var(--mono); color: var(--ink-2); padding: 1px 0; }
+  .proof-row b { color: var(--ink-1); font-weight: 700; }
+
   .inbox-head {
     display: flex; align-items: baseline; gap: 10px; margin-top: 14px; margin-bottom: 6px;
   }
@@ -293,6 +304,15 @@
     <div class="controls">
       <button class="primary" id="boardRun">Route tickets</button>
       <button id="boardClear">Clear</button>
+      <div class="field">
+        <label for="boardCount">Inbox size</label>
+        <select id="boardCount">
+          <option value="30" selected>30 — every ticket once</option>
+          <option value="60">60</option>
+          <option value="120">120</option>
+          <option value="300">300</option>
+        </select>
+      </div>
     </div>
     <div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="label">All three right</div><div class="value" id="bAll">—</div><div class="sub" id="bAllSub">type, team and product</div></div>
@@ -309,6 +329,11 @@
     <div class="inbox" id="inbox"></div>
 
     <div class="board" id="board"></div>
+
+    <div class="proof" id="proof" style="display:none">
+      <div class="proof-title">Evidence this ran live</div>
+      <div id="proofBody"></div>
+    </div>
     <div class="legend" style="margin-top:12px">
       <span class="tag"><span class="dot" style="background:var(--incident)"></span>Incident</span>
       <span class="tag"><span class="dot" style="background:var(--request)"></span>Service Req</span>
@@ -316,14 +341,16 @@
       <span class="tag"><span class="dot" style="background:var(--critical)"></span>routed to the wrong team</span>
     </div>
     <div class="note">
-      Thirty customer tickets for an office-supplies company. Each one is three
+      Customer tickets for an office-supplies company. Each one is three
       <strong>choice</strong> questions over the same text — which kind of ticket it
       is, which team owns it, and which of fifteen products it concerns — so a batch
       of eight is 24 judgments in one round trip and the whole desk is sorted in a
       handful of requests.
       <br><br>
       Everything starts in the <strong>unsorted inbox</strong> &mdash; no type, no team,
-      no product, because none of that is known yet. Tickets leave the pile as the
+      no product, because none of that is known yet. Past thirty the corpus repeats and
+      each copy is labelled, since identical text arriving twice is precisely where a
+      cache would show itself. Tickets leave the pile as the
       answers land, which is the part worth watching: the desk sorts itself. A ticket
       then sits in the column the model chose. A red border means the key puts it on
       another desk; hover it to see where it belonged. <strong>"No single
@@ -1496,8 +1523,22 @@ let boardRows = [];
 let inboxOrder = [];    // shuffled, so the pile reads as a real queue
 let routed = new Set();
 
+let workSet = [];   // what this run routes; past 30 the corpus repeats
+
+function buildWorkSet() {
+  const n = parseInt($('boardCount').value, 10);
+  workSet = [];
+  for (let i = 0; i < n; i++) {
+    const src = SUPPLY[i % SUPPLY.length];
+    const copy = Math.floor(i / SUPPLY.length) + 1;
+    // The repeat is labelled rather than hidden. Identical text arriving twice
+    // is exactly the case where a cache would show, so it must be visible.
+    workSet.push({ ...src, copy, index: i });
+  }
+}
+
 function shuffleInbox() {
-  inboxOrder = SUPPLY.map((_, i) => i);
+  inboxOrder = workSet.map((_, i) => i);
   for (let i = inboxOrder.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [inboxOrder[i], inboxOrder[j]] = [inboxOrder[j], inboxOrder[i]];
@@ -1513,9 +1554,9 @@ function renderInbox() {
   const pending = inboxOrder.filter(i => !routed.has(i));
   $('inboxCount').textContent = pending.length ? pending.length + ' waiting' : 'all routed';
   $('inbox').innerHTML = pending.map(i => {
-    const t = SUPPLY[i];
+    const t = workSet[i];
     return '<div class="chip" data-inbox="' + i + '">' +
-      '<div class="prod">unsorted</div>' +
+      '<div class="prod">unsorted' + (t.copy > 1 ? ' \u00b7 copy ' + t.copy : '') + '</div>' +
       '<div class="txt">' + escapeHtml(t.text.length > 76 ? t.text.slice(0, 76) + '…' : t.text) + '</div>' +
     '</div>';
   }).join('');
@@ -1552,14 +1593,17 @@ async function runBoard() {
   routed = new Set();
   renderInbox();
   renderBoard([]);
+  $('proof').style.display = 'none';
 
   const size = 8;
   const batches = [];
-  for (let i = 0; i < SUPPLY.length; i += size) batches.push({ from: i, items: SUPPLY.slice(i, i + size) });
+  for (let i = 0; i < workSet.length; i += size) batches.push({ from: i, items: workSet.slice(i, i + size) });
 
   const started = performance.now();
-  const rows = new Array(SUPPLY.length);
+  const rows = new Array(workSet.length);
   let judgments = 0;
+  const requestIds = [];
+  let modelSeen = null, tokensIn = 0, tokensOut = 0;
 
   const ask = b => {
     const post = attempt => fetch(PROXY, {
@@ -1567,7 +1611,7 @@ async function runBoard() {
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(boardPayload(b.items))
     }).then(res => {
-      if (res.ok) return res.json();
+      if (res.ok) return res;
       const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
       if (retryable && attempt < 3) {
         const wait = 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25);
@@ -1576,8 +1620,18 @@ async function runBoard() {
       throw new Error('HTTP ' + res.status);
     });
 
-    return post(0).then(data => {
+    return post(0).then(res => {
+      // TypeSafe stamps every call with its own id. Collecting them is the
+      // page's proof that each batch was answered by their servers just now.
+      requestIds.push(res.headers.get('X-TypeSafe-Request-Id') || '(none returned)');
+      return res.json();
+    }).then(data => {
       const a = data.answers || {};
+      if (data.model) modelSeen = data.model;
+      if (data.usage) {
+        tokensIn += data.usage.input_tokens || 0;
+        tokensOut += data.usage.output_tokens || 0;
+      }
       judgments += Object.keys(a).length;
       b.items.forEach((entry, k) => {
         const cat = a['cat_' + k], team = a['team_' + k], prod = a['prod_' + k];
@@ -1623,6 +1677,18 @@ async function runBoard() {
   $('bJudgSub').textContent = `${batches.length} requests · ${Math.round(judgments / batches.length)} each`;
   $('bTime').textContent = fmtMs(wall);
 
+  const unique = new Set(requestIds);
+  const perReq = Math.round(wall / batches.length);
+  $('proof').style.display = 'block';
+  $('proofBody').innerHTML = [
+    `Model that answered: <b>${escapeHtml(modelSeen || 'not reported')}</b>`,
+    `Tokens billed: <b>${tokensIn.toLocaleString()}</b> in, <b>${tokensOut.toLocaleString()}</b> out`,
+    `Requests: <b>${batches.length}</b> \u00b7 ${unique.size} distinct TypeSafe request ids \u00b7 ~${perReq} ms each`,
+    `Newest ids: <b>${requestIds.slice(-3).map(escapeHtml).join('</b>, <b>')}</b>`,
+    `<span style="opacity:.75">Run it again \u2014 the ids change every time. This page keeps ` +
+    `no answers, and the proxy sends Cache-Control: no-store.</span>`
+  ].map(r => `<div class="proof-row">${r}</div>`).join('');
+
   $('boardRun').disabled = false;
 }
 
@@ -1648,21 +1714,33 @@ $('board').addEventListener('mouseleave', hideTip);
 $('inbox').addEventListener('mousemove', e => {
   const chip = e.target.closest('.chip[data-inbox]');
   if (!chip) { hideTip(); return; }
-  showTip(e, escapeHtml(SUPPLY[+chip.dataset.inbox].text) +
+  showTip(e, escapeHtml(workSet[+chip.dataset.inbox].text) +
              '<br><br><span style="opacity:.6">not classified yet</span>');
 });
 $('inbox').addEventListener('mouseleave', hideTip);
 
 $('boardRun').addEventListener('click', runBoard);
+$('boardCount').addEventListener('change', () => {
+  routed = new Set();
+  buildWorkSet();
+  shuffleInbox();
+  renderInbox();
+  renderBoard([]);
+  $('proof').style.display = 'none';
+});
+
 $('boardClear').addEventListener('click', () => {
   routed = new Set();
+  buildWorkSet();
   shuffleInbox();
   renderInbox();
   renderBoard([]);
   ['bAll', 'bCat', 'bTeam', 'bProd', 'bJudg', 'bTime'].forEach(id => {
     $(id).textContent = '—'; $(id).style.color = '';
   });
+  $('proof').style.display = 'none';
 });
+buildWorkSet();
 shuffleInbox();
 renderInbox();
 renderBoard([]);
