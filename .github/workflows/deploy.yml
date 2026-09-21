@@ -15,8 +15,10 @@
 # The hook URL is a secret: anyone holding it can trigger builds, so it belongs
 # in the secret store and never in this file.
 #
-# Without the secret this workflow skips cleanly rather than failing, so the
-# repo stays green until it is configured.
+# A missing secret FAILS this workflow rather than skipping. An earlier version
+# skipped quietly and went green, so three days of pushes reported success while
+# nothing whatsoever was deployed - which is the exact silent failure this file
+# exists to prevent, reproduced one level up.
 
 name: Deploy to Vercel
 
@@ -34,9 +36,11 @@ jobs:
           HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "VERCEL_DEPLOY_HOOK is not set - skipping."
-            echo "Add it under Settings > Secrets and variables > Actions."
-            exit 0
+            echo "::error::VERCEL_DEPLOY_HOOK is not set, so nothing was deployed."
+            echo "Create a Deploy Hook in Vercel (Settings > Git > Deploy Hooks, branch main),"
+            echo "then add its URL as a repository secret named VERCEL_DEPLOY_HOOK under"
+            echo "Settings > Secrets and variables > Actions."
+            exit 1
           fi
 
           echo "Triggering a build for ${GITHUB_SHA}"
