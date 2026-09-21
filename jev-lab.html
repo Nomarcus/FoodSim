@@ -105,6 +105,25 @@
   input[type=range] { width: 130px; accent-color: var(--incident); }
 
 
+
+  .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 14px; }
+  .team-col {
+    background: var(--surface-0); border: 1px solid var(--grid);
+    border-radius: 8px; padding: 8px; min-height: 120px;
+  }
+  .team-col h3 {
+    font-size: 11px; margin: 0 0 2px; font-weight: 700;
+  }
+  .team-col .team-count { font-size: 10px; color: var(--ink-3); font-family: var(--mono); margin-bottom: 8px; }
+  .chip {
+    border-left: 3px solid var(--ink-3); background: var(--surface-2);
+    border-radius: 4px; padding: 5px 6px; margin-bottom: 5px; cursor: default;
+  }
+  .chip.wrong { outline: 1.5px solid var(--critical); }
+  .chip .prod { font-size: 10px; font-family: var(--mono); color: var(--ink-2); }
+  .chip .txt { font-size: 10.5px; line-height: 1.35; margin-top: 2px; }
+  @media (max-width: 860px) { .board { grid-template-columns: repeat(2, 1fr); } }
+
   .lane { margin-top: 14px; }
   .lane-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
   .lane-name { font-size: 12px; font-weight: 600; }
@@ -246,6 +265,42 @@
   </div>
 
 
+
+  <div class="panel">
+    <h2>Routing board — type, team and product in one pass</h2>
+    <div class="controls">
+      <button class="primary" id="boardRun">Route tickets</button>
+      <button id="boardClear">Clear</button>
+    </div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="label">All three right</div><div class="value" id="bAll">—</div><div class="sub" id="bAllSub">type, team and product</div></div>
+      <div class="kpi"><div class="label">Type</div><div class="value" id="bCat">—</div><div class="sub">3 options</div></div>
+      <div class="kpi"><div class="label">Team</div><div class="value" id="bTeam">—</div><div class="sub">5 options</div></div>
+      <div class="kpi"><div class="label">Product</div><div class="value" id="bProd">—</div><div class="sub">15, plus "no single product"</div></div>
+      <div class="kpi"><div class="label">Judgments</div><div class="value" id="bJudg">—</div><div class="sub" id="bJudgSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Wall clock</div><div class="value" id="bTime">—</div><div class="sub">for the whole desk</div></div>
+    </div>
+    <div class="board" id="board"></div>
+    <div class="legend" style="margin-top:12px">
+      <span class="tag"><span class="dot" style="background:var(--incident)"></span>Incident</span>
+      <span class="tag"><span class="dot" style="background:var(--request)"></span>Service Req</span>
+      <span class="tag"><span class="dot" style="background:var(--problem)"></span>Problem</span>
+      <span class="tag"><span class="dot" style="background:var(--critical)"></span>routed to the wrong team</span>
+    </div>
+    <div class="note">
+      Thirty customer tickets for an office-supplies company. Each one is three
+      <strong>choice</strong> questions over the same text — which kind of ticket it
+      is, which team owns it, and which of fifteen products it concerns — so a batch
+      of eight is 24 judgments in one round trip and the whole desk is sorted in a
+      handful of requests.
+      <br><br>
+      A ticket sits in the column the model chose. A red border means the key puts it
+      on another desk; hover it to see where it belonged. <strong>"No single
+      product"</strong> is a real answer, not a gap — plenty of tickets are about a
+      contract or a delivery window rather than a thing in the catalogue, and a
+      classifier without that option will invent one.
+    </div>
+  </div>
   <div class="panel">
     <h2>Race — Jev against the keyword rules</h2>
     <div class="controls">
@@ -1364,6 +1419,177 @@ addEventListener('resize', syncField);
 syncField();
 requestAnimationFrame(frame);
 
+
+/* --- routing board ------------------------------------------------------
+ *
+ * Three choice questions over the same ticket text - kind, owning team, and
+ * which product - asked together so one round trip settles all three. Code
+ * then puts the ticket in the column the model named, which is what a service
+ * desk actually does with the answer.
+ *
+ * All three axes have a hand-written key, so the board can be checked rather
+ * than admired: a chip with a red border is on the wrong desk.
+ */
+const SUPPLY = TypeSafeTickets.SUPPLY_TICKETS;
+const TEAMS = TypeSafeTickets.TEAMS;
+const PRODUCTS = TypeSafeTickets.PRODUCTS;
+const TEAM_KEYS = Object.keys(TEAMS);
+const TEAM_NAME = k => TEAMS[k].split(' — ')[0];
+
+function boardPayload(entries) {
+  const state = { tickets: [] };
+  const questions = {};
+  entries.forEach((e, i) => {
+    state.tickets.push({ index: i, text: e.text });
+    const ref = '`tickets[' + i + '].text`';
+    questions['cat_' + i] = {
+      type: 'choice',
+      instructions: 'What kind of ticket is ' + ref + '?',
+      criteria: CRITERIA
+    };
+    questions['team_' + i] = {
+      type: 'choice',
+      instructions: 'Which team should handle ' + ref + '?',
+      criteria: TEAMS
+    };
+    questions['prod_' + i] = {
+      type: 'choice',
+      instructions: 'Which product is ' + ref + ' about?',
+      criteria: PRODUCTS
+    };
+  });
+  return { state, questions };
+}
+
+let boardRows = [];
+
+function renderBoard(rows) {
+  boardRows = rows;
+  const board = $('board');
+  board.innerHTML = TEAM_KEYS.map(team => {
+    const mine = rows.filter(r => r && r.team === team);
+    return `<div class="team-col">
+      <h3 style="color:var(--ink-1)">${escapeHtml(TEAM_NAME(team))}</h3>
+      <div class="team-count">${mine.length} ticket${mine.length === 1 ? '' : 's'}</div>
+      ${mine.map(r => {
+        const colour = COLOR[r.category] || 'var(--ink-3)';
+        const wrong = r.team !== r.gold.team;
+        const title = wrong
+          ? `Key: ${TEAM_NAME(r.gold.team)} · ${PRODUCTS[r.gold.product].split(' — ')[0]}`
+          : `Key agrees · ${PRODUCTS[r.gold.product].split(' — ')[0]}`;
+        return `<div class="chip${wrong ? ' wrong' : ''}" style="border-left-color:${colour}"
+                     data-i="${r.index}" title="${escapeHtml(title)}">
+          <div class="prod">${escapeHtml(PRODUCTS[r.product] ? PRODUCTS[r.product].split(' — ')[0] : r.product)}${
+            r.product !== r.gold.product ? ' <span style="color:var(--critical)">✗</span>' : ''}</div>
+          <div class="txt">${escapeHtml(r.text.length > 84 ? r.text.slice(0, 84) + '…' : r.text)}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+}
+
+async function runBoard() {
+  $('boardRun').disabled = true;
+  $('bTime').textContent = '…';
+
+  const size = 8;
+  const batches = [];
+  for (let i = 0; i < SUPPLY.length; i += size) batches.push({ from: i, items: SUPPLY.slice(i, i + size) });
+
+  const started = performance.now();
+  const rows = new Array(SUPPLY.length);
+  let judgments = 0;
+
+  const ask = b => {
+    const post = attempt => fetch(PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(boardPayload(b.items))
+    }).then(res => {
+      if (res.ok) return res.json();
+      const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+      if (retryable && attempt < 3) {
+        const wait = 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25);
+        return new Promise(r => setTimeout(r, wait)).then(() => post(attempt + 1));
+      }
+      throw new Error('HTTP ' + res.status);
+    });
+
+    return post(0).then(data => {
+      const a = data.answers || {};
+      judgments += Object.keys(a).length;
+      b.items.forEach((entry, k) => {
+        const cat = a['cat_' + k], team = a['team_' + k], prod = a['prod_' + k];
+        rows[b.from + k] = {
+          index: b.from + k, text: entry.text, gold: entry,
+          category: cat && cat.choice, team: team && team.choice, product: prod && prod.choice,
+          confidence: { cat: cat && cat.confidence, team: team && team.confidence, prod: prod && prod.confidence }
+        };
+      });
+      renderBoard(rows);
+    });
+  };
+
+  try {
+    await withLimit(batches.map(b => () => ask(b)), 8);
+  } catch (err) {
+    $('bTime').textContent = 'failed';
+    setStatus('Routing board: a request failed. Check the proxy.', true);
+    $('boardRun').disabled = false;
+    return;
+  }
+
+  const wall = performance.now() - started;
+  const done = rows.filter(Boolean);
+  const okCat = done.filter(r => r.category === r.gold.category).length;
+  const okTeam = done.filter(r => r.team === r.gold.team).length;
+  const okProd = done.filter(r => r.product === r.gold.product).length;
+  const okAll = done.filter(r => r.category === r.gold.category &&
+    r.team === r.gold.team && r.product === r.gold.product).length;
+
+  const pct = (n) => `${((n / done.length) * 100).toFixed(0)}%`;
+  const tint = (n) => n === done.length ? 'var(--good)'
+    : n / done.length >= 0.85 ? 'var(--warning)' : 'var(--critical)';
+
+  $('bAll').textContent = pct(okAll);   $('bAll').style.color = tint(okAll);
+  $('bAllSub').textContent = `${okAll}/${done.length} tickets fully correct`;
+  $('bCat').textContent = pct(okCat);   $('bCat').style.color = tint(okCat);
+  $('bTeam').textContent = pct(okTeam); $('bTeam').style.color = tint(okTeam);
+  $('bProd').textContent = pct(okProd); $('bProd').style.color = tint(okProd);
+  $('bJudg').textContent = judgments;
+  $('bJudgSub').textContent = `${batches.length} requests · ${Math.round(judgments / batches.length)} each`;
+  $('bTime').textContent = fmtMs(wall);
+
+  $('boardRun').disabled = false;
+}
+
+// One listener for the whole board rather than one per chip.
+$('board').addEventListener('mousemove', e => {
+  const chip = e.target.closest('.chip[data-i]');
+  if (!chip) { hideTip(); return; }
+  const r = boardRows[+chip.dataset.i];
+  if (!r) { hideTip(); return; }
+  const line = (label, got, want, conf) => {
+    const ok = got === want;
+    return `${label}: <span style="color:${ok ? 'var(--good)' : 'var(--critical)'}">${escapeHtml(got || '—')}</span>` +
+           (ok ? '' : ` <span style="opacity:.7">→ key: ${escapeHtml(want)}</span>`) +
+           (typeof conf === 'number' ? ` <span style="opacity:.5">${(conf * 100).toFixed(0)}%</span>` : '');
+  };
+  showTip(e, `${escapeHtml(r.text)}<br><br>` +
+    line('type', r.category, r.gold.category, r.confidence.cat) + '<br>' +
+    line('team', r.team && TEAM_NAME(r.team), TEAM_NAME(r.gold.team), r.confidence.team) + '<br>' +
+    line('product', r.product, r.gold.product, r.confidence.prod));
+});
+$('board').addEventListener('mouseleave', hideTip);
+
+$('boardRun').addEventListener('click', runBoard);
+$('boardClear').addEventListener('click', () => {
+  renderBoard([]);
+  ['bAll', 'bCat', 'bTeam', 'bProd', 'bJudg', 'bTime'].forEach(id => {
+    $(id).textContent = '—'; $(id).style.color = '';
+  });
+});
+renderBoard([]);
 
 /* --- race ---------------------------------------------------------------
  *
