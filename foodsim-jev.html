@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FoodSim Jev</title>
+<style>
+  :root {
+    --bg: #050516;
+    --panel: rgba(14, 19, 48, 0.92);
+    --grid: rgba(148,163,209,.28);
+    --ink: #f5f7ff;
+    --ink-dim: #a0accf;
+    --accent: #38bdf8;
+    --ok: #7cf29d;
+    --bad: #f472b6;
+    --fruit: #ffd43b;
+    --home: #3b82f6;
+    --mono: 'Fira Code', ui-monospace, Consolas, monospace;
+    --ui: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background:
+      radial-gradient(circle at 18% 10%, rgba(56,189,248,.18) 0%, transparent 46%),
+      radial-gradient(circle at 82% 8%, rgba(244,114,182,.16) 0%, transparent 54%),
+      linear-gradient(160deg, var(--bg) 0%, #0f1536 55%, #1a2344 100%);
+    color: var(--ink); font-family: var(--ui); min-height: 100vh;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h1 span { color: var(--accent); }
+  header p { color: var(--ink-dim); font-size: 14px; max-width: 74ch; margin: 0 0 20px; }
+  a { color: var(--accent); }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--grid);
+    border-radius: 14px; padding: 16px; margin-bottom: 16px;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label {
+    font-size: 10px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .5px;
+  }
+  select, button {
+    font-family: var(--ui); font-size: 13px; padding: 7px 12px; border-radius: 8px;
+    background: rgba(148,163,209,.12); color: var(--ink);
+    border: 1px solid var(--grid); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #041022; font-weight: 700; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  canvas#world {
+    display: block; width: 100%; height: auto; margin-top: 14px;
+    border-radius: 12px; border: 1px solid rgba(148,163,209,.45);
+    background: #070a1d;
+    box-shadow: 0 0 55px rgba(56,189,248,.16), inset 0 0 28px rgba(148,163,209,.10);
+  }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+  .kpi { background: rgba(0,0,0,.3); border: 1px solid #334; border-radius: 10px; padding: 10px 12px; }
+  .kpi .label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-dim); }
+  .kpi .value { font-family: var(--mono); font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .kpi .sub { font-size: 11px; color: var(--ink-dim); font-family: var(--mono); }
+
+  .status { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); margin-top: 12px; min-height: 18px; }
+  .status.err { color: var(--bad); }
+  .note { font-size: 12px; color: var(--ink-dim); line-height: 1.55; margin-top: 12px; }
+  .note strong { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1><span>FoodSim</span> Jev</h1>
+    <p>
+      The same arena as <a href="foodsim.html">FoodSim Arena</a> — obstacles, scattered
+      fruit, a home base to carry it back to — but nothing here is trained. Every
+      change of course is a decision the model makes, live, about what the agent can
+      see from where it stands.
+    </p>
+  </header>
+
+  <div class="panel">
+    <div class="controls">
+      <button class="primary" id="run">Start</button>
+      <button id="stop">Stop</button>
+      <button id="reset">New arena</button>
+      <div class="field">
+        <label for="agents">Agents</label>
+        <select id="agents">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+          <option value="24">24</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="obst">Obstacles</label>
+        <select id="obst">
+          <option value="10">10</option>
+          <option value="22" selected>22</option>
+          <option value="34">34</option>
+        </select>
+      </div>
+    </div>
+
+    <canvas id="world" width="1100" height="640"
+            aria-label="Agents navigating an arena of obstacles to fetch fruit"></canvas>
+
+    <div class="kpis">
+      <div class="kpi"><div class="label">Fruit delivered</div><div class="value" id="kFood">0</div><div class="sub" id="kFoodSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Decisions</div><div class="value" id="kDec">0</div><div class="sub" id="kDecSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Per decision</div><div class="value" id="kLat">—</div><div class="sub">round trip</div></div>
+      <div class="kpi"><div class="label">Decisions / s</div><div class="value" id="kRate">0.0</div><div class="sub">last 5 seconds</div></div>
+      <div class="kpi"><div class="label">Requests</div><div class="value" id="kReq">0</div><div class="sub" id="kReqSub">agents share one</div></div>
+      <div class="kpi"><div class="label">Blocked</div><div class="value" id="kHit">0</div><div class="sub">walked into something</div></div>
+    </div>
+
+    <div class="status" id="status">Press Start.</div>
+  </div>
+
+  <div class="panel">
+    <div class="note">
+      <strong>What the model decides.</strong> An agent that needs a new course reports
+      what it can see: how far it can travel in each of eight directions before hitting
+      an obstacle or the edge, and roughly where its goal lies — a fruit, or home once
+      it is carrying one. Jev picks the direction. That single choice is the pathing
+      and the obstacle avoidance both; there is no steering code underneath quietly
+      correcting it.
+      <br><br>
+      <strong>What the code does.</strong> It moves the agent along the chosen heading,
+      refuses to let it pass through an obstacle, and asks again when the agent arrives,
+      gets blocked, or has travelled far enough that the view has changed. It also
+      measures the sight lines that go into the question. None of it chooses a direction.
+      <br><br>
+      <strong>Why it looks different from the original.</strong> FoodSim Arena runs an
+      evolved neural network for every agent on every frame, sixty times a second, and
+      gets better over generations. This runs at the speed of a round trip and never
+      improves — it has nothing to train. Every agent that needs a decision in the same
+      tick is asked in <em>one</em> request, in parallel, which is why the fleet moves
+      together rather than one at a time.
+    </div>
+  </div>
+
+</div>
+
+<script>
+const PROXY = 'api/typesafe';
+const W = 1100, H = 640;
+const AGENT_R = 7, FRUIT_R = 6, HOME_R = 34;
+const SPEED = 92;              // px per second
+const LOOK = 240;              // how far an agent can see down a ray
+const REDECIDE_DIST = 70;      // re-ask once it has travelled this far
+
+const DIRS = [
+  { key: 'north',      dx: 0,  dy: -1 },
+  { key: 'north_east', dx: 1,  dy: -1 },
+  { key: 'east',       dx: 1,  dy: 0  },
+  { key: 'south_east', dx: 1,  dy: 1  },
+  { key: 'south',      dx: 0,  dy: 1  },
+  { key: 'south_west', dx: -1, dy: 1  },
+  { key: 'west',       dx: -1, dy: 0  },
+  { key: 'north_west', dx: -1, dy: -1 }
+].map(d => {
+  const len = Math.hypot(d.dx, d.dy) || 1;
+  return { ...d, dx: d.dx / len, dy: d.dy / len };
+});
+
+const CRITERIA = {};
+DIRS.forEach(d => {
+  CRITERIA[d.key] = 'Head ' + d.key.replace('_', '-') + '. Sensible when that line is ' +
+    'clear for a good distance and it closes the gap to the goal, or when it is the ' +
+    'way around something in the way.';
+});
+
+const $ = id => document.getElementById(id);
+const canvas = $('world');
+const ctx = canvas.getContext('2d');
+
+const sim = {
+  running: false, obstacles: [], fruits: [], agents: [],
+  home: { x: W * 0.5, y: H * 0.5 },
+  delivered: 0, decisions: 0, requests: 0, blocked: 0,
+  latencies: [], recent: [], inFlight: false, lastFrame: 0, started: 0
+};
+
+const rand = (a, b) => a + Math.random() * (b - a);
+
+function overlapsObstacle(x, y, r) {
+  return sim.obstacles.some(o => Math.hypot(o.x - x, o.y - y) < o.r + r);
+}
+
+function buildArena() {
+  sim.obstacles = [];
+  const n = parseInt($('obst').value, 10);
+  for (let i = 0; i < n; i++) {
+    for (let t = 0; t < 400; t++) {
+      const r = rand(16, 40);
+      const x = rand(70, W - 70), y = rand(55, H - 55);
+      if (Math.hypot(x - sim.home.x, y - sim.home.y) < HOME_R + r + 46) continue;
+      if (overlapsObstacle(x, y, r + 14)) continue;
+      sim.obstacles.push({ x, y, r });
+      break;
+    }
+  }
+
+  sim.fruits = [];
+  for (let i = 0; i < 14; i++) spawnFruit();
+
+  sim.agents = [];
+  const count = parseInt($('agents').value, 10);
+  for (let i = 0; i < count; i++) {
+    const a = rand(0, Math.PI * 2), d = HOME_R + 14;
+    sim.agents.push({
+      x: sim.home.x + Math.cos(a) * d, y: sim.home.y + Math.sin(a) * d,
+      dir: null, carrying: false, travelled: 0, waiting: false, trail: []
+    });
+  }
+
+  sim.delivered = 0; sim.decisions = 0; sim.requests = 0; sim.blocked = 0;
+  sim.latencies = []; sim.recent = [];
+}
+
+function spawnFruit() {
+  for (let t = 0; t < 400; t++) {
+    const x = rand(40, W - 40), y = rand(40, H - 40);
+    if (overlapsObstacle(x, y, FRUIT_R + 8)) continue;
+    if (Math.hypot(x - sim.home.x, y - sim.home.y) < HOME_R + 70) continue;
+    sim.fruits.push({ x, y });
+    return;
+  }
+}
+
+/** How far this agent could travel along a ray before something stops it. */
+function sightLine(a, dir) {
+  const step = 10;
+  for (let d = step; d <= LOOK; d += step) {
+    const x = a.x + dir.dx * d, y = a.y + dir.dy * d;
+    if (x < AGENT_R || x > W - AGENT_R || y < AGENT_R || y > H - AGENT_R) return d - step;
+    if (overlapsObstacle(x, y, AGENT_R)) return d - step;
+  }
+  return LOOK;
+}
+
+function goalFor(a) {
+  if (a.carrying) return { kind: 'home', x: sim.home.x, y: sim.home.y };
+  let best = null, bestD = Infinity;
+  for (const f of sim.fruits) {
+    const d = Math.hypot(f.x - a.x, f.y - a.y);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  return best ? { kind: 'fruit', x: best.x, y: best.y } : null;
+}
+
+/** The whole picture an agent has of its situation, in plain terms. */
+function senses(a) {
+  const goal = goalFor(a);
+  const view = {};
+  DIRS.forEach(d => {
+    const clear = sightLine(a, d);
+    view[d.key] = clear >= LOOK
+      ? 'clear as far as it can see'
+      : (clear < 24 ? 'blocked almost immediately' : 'clear for about ' + Math.round(clear) + ' px');
+  });
+
+  let toward = 'nothing in particular';
+  if (goal) {
+    const ang = Math.atan2(goal.y - a.y, goal.x - a.x);
+    let best = DIRS[0], bestDot = -2;
+    DIRS.forEach(d => {
+      const dot = d.dx * Math.cos(ang) + d.dy * Math.sin(ang);
+      if (dot > bestDot) { bestDot = dot; best = d; }
+    });
+    toward = best.key + ', about ' +
+      Math.round(Math.hypot(goal.x - a.x, goal.y - a.y)) + ' px away';
+  }
+
+  return {
+    carrying: a.carrying,
+    looking_for: a.carrying ? 'the home base, to drop the fruit it is carrying' : 'the nearest fruit',
+    goal_lies: toward,
+    how_far_it_can_travel: view
+  };
+}
+
+async function askForCourses(pending) {
+  const state = { agents: pending.map((a, i) => ({ index: i, ...senses(a) })) };
+  const questions = {};
+  pending.forEach((_, i) => {
+    questions['dir_' + i] = {
+      type: 'choice',
+      instructions: 'Agent `agents[' + i + ']` must pick a direction to travel next. It ' +
+        'wants to reach ' + (pending[i].carrying ? 'the home base' : 'a fruit') +
+        ', and it cannot move through obstacles or off the edge. Which direction ' +
+        'should it take?',
+      criteria: CRITERIA
+    };
+  });
+
+  const started = performance.now();
+  const res = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ state, questions })
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+
+  const latency = performance.now() - started;
+  sim.latencies.push(latency);
+  if (sim.latencies.length > 30) sim.latencies.shift();
+  sim.requests++;
+
+  const now = performance.now();
+  pending.forEach((a, i) => {
+    const ans = (data.answers || {})['dir_' + i];
+    const dir = ans && DIRS.find(d => d.key === ans.choice);
+    a.dir = dir || DIRS[Math.floor(Math.random() * DIRS.length)];
+    a.confidence = ans ? ans.confidence : null;
+    a.travelled = 0;
+    a.waiting = false;
+    sim.decisions++;
+    sim.recent.push(now);
+  });
+}
+
+function step(dt) {
+  // Anyone without a course, or who has gone far enough that the view has
+  // changed, needs the model again.
+  const pending = sim.agents.filter(a => !a.waiting && (!a.dir || a.travelled >= REDECIDE_DIST));
+  if (pending.length && !sim.inFlight) {
+    pending.forEach(a => { a.waiting = true; a.dir = null; });
+    sim.inFlight = true;
+    askForCourses(pending)
+      .catch(() => {
+        pending.forEach(a => { a.waiting = false; });
+        sim.running = false;
+        setStatus('A decision request failed. This page needs the api/typesafe proxy.', true);
+        $('run').disabled = false;
+      })
+      .finally(() => { sim.inFlight = false; });
+  }
+
+  const dist = SPEED * dt;
+  sim.agents.forEach(a => {
+    if (!a.dir) return;
+    const nx = a.x + a.dir.dx * dist, ny = a.y + a.dir.dy * dist;
+
+    // Physics, not judgement: an agent cannot pass through anything. Walking
+    // into something simply stops it, and it has to decide again.
+    const hitEdge = nx < AGENT_R || nx > W - AGENT_R || ny < AGENT_R || ny > H - AGENT_R;
+    if (hitEdge || overlapsObstacle(nx, ny, AGENT_R)) {
+      a.dir = null; a.travelled = 0; sim.blocked++;
+      return;
+    }
+
+    a.x = nx; a.y = ny; a.travelled += dist;
+    a.trail.push({ x: a.x, y: a.y });
+    if (a.trail.length > 26) a.trail.shift();
+
+    if (!a.carrying) {
+      const i = sim.fruits.findIndex(f => Math.hypot(f.x - a.x, f.y - a.y) < FRUIT_R + AGENT_R);
+      if (i >= 0) {
+        sim.fruits.splice(i, 1);
+        spawnFruit();
+        a.carrying = true; a.dir = null; a.travelled = 0;
+      }
+    } else if (Math.hypot(a.x - sim.home.x, a.y - sim.home.y) < HOME_R) {
+      a.carrying = false; a.dir = null; a.travelled = 0;
+      sim.delivered++;
+    }
+  });
+
+  const cut = performance.now() - 5000;
+  while (sim.recent.length && sim.recent[0] < cut) sim.recent.shift();
+}
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = 'rgba(148,163,209,.07)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 55) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 55) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const home = css('--home');
+  ctx.fillStyle = 'rgba(59,130,246,0.16)';
+  ctx.strokeStyle = home; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(sim.home.x, sim.home.y, HOME_R, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = home; ctx.font = '600 11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'center';
+  ctx.fillText('HOME', sim.home.x, sim.home.y + 4);
+
+  sim.obstacles.forEach(o => {
+    const g = ctx.createRadialGradient(o.x, o.y, o.r * 0.2, o.x, o.y, o.r);
+    g.addColorStop(0, 'rgba(244,114,182,.42)');
+    g.addColorStop(1, 'rgba(129,140,248,.20)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(244,114,182,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+
+  ctx.fillStyle = css('--fruit');
+  sim.fruits.forEach(f => {
+    ctx.beginPath(); ctx.arc(f.x, f.y, FRUIT_R, 0, Math.PI * 2); ctx.fill();
+  });
+
+  sim.agents.forEach(a => {
+    if (a.trail.length > 1) {
+      ctx.strokeStyle = a.carrying ? 'rgba(255,212,59,.35)' : 'rgba(56,189,248,.28)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(a.trail[0].x, a.trail[0].y);
+      for (let i = 1; i < a.trail.length; i++) ctx.lineTo(a.trail[i].x, a.trail[i].y);
+      ctx.stroke();
+    }
+
+    // Waiting on the model: the pause is the round trip, so it is worth seeing.
+    if (a.waiting) {
+      ctx.strokeStyle = 'rgba(255,212,59,.85)'; ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.4 + 0.4 * Math.sin(performance.now() / 160);
+      ctx.beginPath(); ctx.arc(a.x, a.y, AGENT_R + 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = css('--accent');
+    ctx.beginPath(); ctx.arc(a.x, a.y, AGENT_R, 0, Math.PI * 2); ctx.fill();
+
+    // A carried fruit rides on the agent. Colouring the whole agent yellow made
+    // it indistinguishable from the fruit lying on the ground.
+    if (a.carrying) {
+      ctx.fillStyle = css('--fruit');
+      ctx.beginPath(); ctx.arc(a.x, a.y, AGENT_R - 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    if (a.dir) {
+      ctx.strokeStyle = 'rgba(245,247,255,.7)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y);
+      ctx.lineTo(a.x + a.dir.dx * 15, a.y + a.dir.dy * 15); ctx.stroke();
+    }
+  });
+}
+
+function stats() {
+  $('kFood').textContent = sim.delivered;
+  const secs = (performance.now() - sim.started) / 1000;
+  $('kFoodSub').textContent = sim.delivered && secs > 0
+    ? (sim.delivered / (secs / 60)).toFixed(1) + ' / min' : ' ';
+  $('kDec').textContent = sim.decisions;
+  $('kDecSub').textContent = sim.delivered
+    ? (sim.decisions / sim.delivered).toFixed(1) + ' per fruit' : ' ';
+  $('kLat').textContent = sim.latencies.length
+    ? Math.round(sim.latencies.reduce((a, b) => a + b, 0) / sim.latencies.length) + ' ms' : '—';
+  $('kRate').textContent = (sim.recent.length / 5).toFixed(1);
+  $('kReq').textContent = sim.requests;
+  $('kReqSub').textContent = sim.requests
+    ? (sim.decisions / sim.requests).toFixed(1) + ' decisions each' : 'agents share one';
+  $('kHit').textContent = sim.blocked;
+}
+
+function setStatus(msg, err) {
+  $('status').textContent = msg;
+  $('status').classList.toggle('err', !!err);
+}
+
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - sim.lastFrame) / 1000 || 0);
+  sim.lastFrame = ts;
+  if (sim.running) step(dt);
+  draw();
+  stats();
+  requestAnimationFrame(frame);
+}
+
+$('run').addEventListener('click', () => {
+  if (sim.running) return;
+  sim.running = true;
+  sim.started = performance.now();
+  $('run').disabled = true;
+  setStatus('Running. Every agent that needs a course is asked in the same request.');
+});
+$('stop').addEventListener('click', () => {
+  sim.running = false; $('run').disabled = false; setStatus('Stopped.');
+});
+$('reset').addEventListener('click', () => {
+  sim.running = false; $('run').disabled = false;
+  buildArena(); setStatus('New arena. Press Start.');
+});
+['agents', 'obst'].forEach(id => $(id).addEventListener('change', () => {
+  sim.running = false; $('run').disabled = false; buildArena();
+}));
+
+buildArena();
+requestAnimationFrame(frame);
+
+fetch(PROXY, { headers: { Accept: 'application/json' } })
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(info => {
+    if (!info || info.proxy !== true) throw new Error();
+    if (!info.configured) {
+      setStatus('Proxy found, but TYPESAFE_API_KEY is not set on the server.', true);
+      $('run').disabled = true;
+    } else {
+      setStatus('Ready — ' + info.model + ' via the server proxy. Press Start.');
+    }
+  })
+  .catch(() => {
+    setStatus('No api/typesafe proxy on this host, so the model cannot be reached. ' +
+              'This page needs the Vercel deployment, not GitHub Pages.', true);
+    $('run').disabled = true;
+  });
+</script>
+</body>
+</html>
