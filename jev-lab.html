@@ -481,11 +481,11 @@
       <button id="beltReset">Empty it</button>
       <div class="field">
         <label for="beltAgents">Sorters <span id="beltAgentsVal" class="mono">6</span></label>
-        <input type="range" id="beltAgents" min="1" max="40" value="6" step="1">
+        <input type="range" id="beltAgents" min="1" max="100" value="6" step="1">
       </div>
       <div class="field">
         <label for="beltRate">Parcels per second <span id="beltRateVal" class="mono">2.0</span></label>
-        <input type="range" id="beltRate" min="2" max="300" value="20" step="1">
+        <input type="range" id="beltRate" min="2" max="600" value="20" step="1">
       </div>
     </div>
 
@@ -508,7 +508,7 @@
         <button id="beltBinClose" style="padding:4px 10px">Close</button>
       </div>
       <div class="scroll" style="max-height:260px; margin-top:8px">
-        <table><thead><tr><th style="width:120px">Against the key</th><th>Delivery note</th></tr></thead>
+        <table><thead><tr><th style="width:120px" id="beltBinCol">Against the key</th><th>Delivery note</th></tr></thead>
           <tbody id="beltBinRows"></tbody></table>
       </div>
     </div>
@@ -529,6 +529,9 @@
       <em>n ÷ that</em> parcels a second. Push the arrival rate past it and parcels
       start passing everybody and falling off the end — the counter says how many.
       That ratio, not the belt, is what decides how many people the line needs.
+      Everything that passes the last pair of hands lands in the crate at the end,
+      where it piles up instead of disappearing — click it to read what was never
+      even looked at.
       <br><br>
       <strong>Bins are neutral on purpose.</strong> Twenty distinguishable colours do
       not exist, so a parcel is marked green or red for whether it landed in the bin
@@ -2283,11 +2286,12 @@ const BIN_CRITERIA = {};
 BINS.forEach(b => { BIN_CRITERIA[b.key] = b.criteria; });
 
 // Fast enough that even the top arrival rate leaves a gap between parcels: at
-// 30 a second they are born 25 px apart, which is wider than a parcel. Slower
+// 60 a second they are born 25 px apart, which is wider than a parcel. Slower
 // than this and a flooded belt draws as one solid bar.
-const BELT_SPEED = 760;      // px per second along the belt
+const BELT_SPEED = 1500;     // px per second along the belt
 const PICK_MS = 200;         // parcel to the sorter's hands
 const DROP_MS = 420;         // sorter's hands to the bin
+const DUMP_MS = 320;         // off the end of the belt, into the overflow crate
 const PARCEL_W = 20, PARCEL_H = 16;
 const MAX_IN_FLIGHT = 12;
 // Parcels picked up within the same breath go in one request. Without a short
@@ -2302,10 +2306,23 @@ const bctx = beltStage.getContext('2d');
 
 const belt = {
   running: false, parcels: [], agents: [], queue: [], inFlight: 0,
-  bins: {}, sorted: 0, missed: 0, correct: 0, latencies: [], landings: [],
+  bins: {}, dump: [], sorted: 0, missed: 0, correct: 0, latencies: [], landings: [],
   misses: [], seq: 0, last: 0, spawnDebt: 0, error: null
 };
 BINS.forEach(b => { belt.bins[b.key] = []; });
+
+// Where the nth parcel sits inside the crate: filled bottom-up, six across, so
+// a crate that is filling up reads as a rising pile rather than a number.
+// The pile tops out short of the crate's rim so the count above it stays
+// readable however much has fallen in.
+const DUMP_COLS = 6, DUMP_SHOWN = 48;
+function dumpSlot(i, c) {
+  const k = i % DUMP_SHOWN;
+  return {
+    x: c.x + 12 + (k % DUMP_COLS) * ((c.w - 24) / (DUMP_COLS - 1)),
+    y: c.y + c.h - 10 - Math.floor(k / DUMP_COLS) * 10
+  };
+}
 
 function beltSize() {
   const ratio = devicePixelRatio || 1;
@@ -2328,21 +2345,31 @@ function beltLayout() {
   if (belt.agents.length !== n) {
     belt.agents = Array.from({ length: n }, () => ({ parcel: null }));
   }
+  // The overflow crate sits at the end of the belt, so the line of sorters has
+  // to stop short of it - a sorter standing under the crate would be catching
+  // parcels that are supposed to be falling past everybody.
+  const crateW = 104;
+  const crateX = w - crateW - 10;
+  const crateY = beltTop + beltH + 16;
+
   // A long line has to stay readable: the sorters shrink as they are added, and
-  // past sixteen they stand in two staggered rows so they stop overlapping.
-  const margin = 40, span = w - margin * 2;
+  // past sixteen (then forty-eight) they stand in two, then three, staggered
+  // rows so they stop overlapping.
+  const margin = 34, span = crateX - 18 - margin;
   const pitch = span / n;
-  const rows = n > 16 ? 2 : 1;
-  belt.radius = Math.max(5, Math.min(13, pitch / (rows === 2 ? 1.1 : 2.2) - 2));
+  const rows = n > 48 ? 3 : (n > 16 ? 2 : 1);
+  belt.radius = Math.max(4, Math.min(13, pitch / (rows === 1 ? 2.2 : 1.1) - 2));
+  const rowGap = rows === 3 ? 30 : 34;
   belt.agents.forEach((a, i) => {
     a.x = margin + pitch * (i + 0.5);
-    a.y = beltTop + beltH + 46 + (rows === 2 ? (i % 2) * 34 : 0);
+    a.y = beltTop + beltH + (rows === 3 ? 34 : 46) + (i % rows) * rowGap;
   });
 
   // Twenty bins in two rows of ten, under the sorters.
   const cols = 10, gap = 6, pad = 14;
   const bw = (w - pad * 2 - gap * (cols - 1)) / cols, bh = 62;
-  const rowTop = Math.min(h - bh * 2 - gap - 8, beltTop + beltH + 148);
+  const rowTop = Math.min(h - bh * 2 - gap - 8, beltTop + beltH + 150);
+  belt.crate = { x: crateX, y: crateY, w: crateW, h: rowTop - crateY - 12 };
   belt.boxes = BINS.map((b, i) => ({
     key: b.key, name: b.name,
     x: pad + (i % cols) * (bw + gap),
@@ -2453,9 +2480,12 @@ function beltStep(dt, lane) {
         p.from = { x: p.x, y: p.y };
         p.queuedAt = now;
         belt.queue.push(p);
-      } else if (p.x > lane.w + PARCEL_W) {
-        p.state = 'gone';
-        belt.missed++; belt.misses.push(now);
+      } else if (p.x >= belt.crate.x + belt.crate.w / 2) {
+        // Nobody was free the whole way down the line. It drops off the end and
+        // lands in the crate, where it stays visible instead of vanishing.
+        p.state = 'toDump'; p.t = 0;
+        p.from = { x: p.x, y: p.y };
+        p.slot = belt.dump.length;
       }
     } else if (p.state === 'toAgent') {
       p.t += dt * 1000;
@@ -2477,12 +2507,24 @@ function beltStep(dt, lane) {
         if (p.correct) belt.correct++;
         belt.landings.push(now);
       }
+    } else if (p.state === 'toDump') {
+      const c = belt.crate, slot = dumpSlot(p.slot, c);
+      p.t += dt * 1000;
+      const k = Math.min(1, p.t / DUMP_MS);
+      p.x = p.from.x + (slot.x - p.from.x) * k;
+      p.y = p.from.y + (slot.y - p.from.y) * k;
+      if (k === 1) {
+        p.state = 'dumped';
+        belt.dump.push(p);
+        belt.missed++; belt.misses.push(now);
+      }
     } else if (p.state === 'deciding' && p.agent) {
       p.x = p.agent.x; p.y = p.agent.y;
     }
   });
 
-  belt.parcels = belt.parcels.filter(p => p.state !== 'gone' && p.state !== 'landed' && p.state !== 'lost');
+  belt.parcels = belt.parcels.filter(p =>
+    p.state !== 'landed' && p.state !== 'lost' && p.state !== 'dumped');
   beltDispatch();
 
   const cut5 = now - 5000, cut10 = now - 10000;
@@ -2558,6 +2600,24 @@ function beltDraw(lane) {
     });
   });
 
+  // the overflow crate at the end of the belt
+  const c = belt.crate;
+  const over = !!belt.misses.length;
+  bctx.fillStyle = cssVar('--surface-1');
+  bctx.strokeStyle = over ? cssVar('--critical') : cssVar('--axis');
+  bctx.lineWidth = over ? 2 : 1;
+  bctx.beginPath();
+  // Open at the top: parcels fall in, and nothing is pretending to catch them.
+  bctx.moveTo(c.x, c.y);
+  bctx.lineTo(c.x, c.y + c.h); bctx.lineTo(c.x + c.w, c.y + c.h); bctx.lineTo(c.x + c.w, c.y);
+  bctx.fill(); bctx.stroke();
+
+  belt.dump.slice(-DUMP_SHOWN).forEach((p, i) => {
+    const slot = dumpSlot(i, c);
+    bctx.fillStyle = cssVar('--ink-3');
+    bctx.fillRect(slot.x - 6, slot.y - 4, 12, 8);
+  });
+
   // parcels
   belt.parcels.forEach(p => {
     bctx.fillStyle = cssVar('--request');
@@ -2569,6 +2629,18 @@ function beltDraw(lane) {
     bctx.beginPath();
     bctx.moveTo(p.x, p.y - PARCEL_H / 2); bctx.lineTo(p.x, p.y + PARCEL_H / 2); bctx.stroke();
   });
+
+  // The crate's count is drawn last, on its own plate: parcels raining in were
+  // landing on top of the one number this box exists to show.
+  bctx.fillStyle = cssVar('--surface-0');
+  bctx.fillRect(c.x + 1, c.y + 1, c.w - 2, 40);
+  bctx.textAlign = 'center';
+  bctx.fillStyle = over ? cssVar('--critical') : cssVar('--ink-3');
+  bctx.font = '600 9px ' + cssVar('--ui');
+  bctx.fillText('OFF THE END', c.x + c.w / 2, c.y + 13);
+  bctx.fillStyle = belt.missed ? cssVar('--critical') : cssVar('--ink-3');
+  bctx.font = '700 20px ' + cssVar('--mono');
+  bctx.fillText(String(belt.missed), c.x + c.w / 2, c.y + 34);
 }
 
 function beltStats() {
@@ -2629,6 +2701,7 @@ function beltClear() {
   belt.parcels = []; belt.queue = [];
   belt.agents.forEach(a => { a.parcel = null; });
   BINS.forEach(b => { belt.bins[b.key] = []; });
+  belt.dump = [];
   belt.sorted = belt.missed = belt.correct = 0;
   belt.latencies = []; belt.landings = []; belt.misses = [];
   belt.spawnDebt = 0; belt.error = null;
@@ -2659,13 +2732,19 @@ function beltHit(evt) {
   const r = beltStage.getBoundingClientRect();
   const x = evt.clientX - r.left, y = evt.clientY - r.top;
   const box = (belt.boxes || []).find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  const c = belt.crate;
+  const crate = c && x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h;
   const parcel = belt.parcels.find(p => Math.abs(p.x - x) < PARCEL_W && Math.abs(p.y - y) < PARCEL_H);
-  return { box, parcel, x, y };
+  return { box, crate, parcel, x, y };
 }
 
 beltStage.addEventListener('mousemove', evt => {
-  const { box, parcel } = beltHit(evt);
-  if (parcel) {
+  const { box, crate, parcel } = beltHit(evt);
+  if (crate && !parcel) {
+    beltStage.style.cursor = belt.dump.length ? 'pointer' : 'default';
+    showTip(evt, '<strong>Off the end</strong><br>' + belt.missed +
+      ' parcels passed every sorter' + (belt.dump.length ? ' — click to read them' : ''));
+  } else if (parcel) {
     beltStage.style.cursor = 'default';
     showTip(evt, escapeHtml(parcel.text));
   } else if (box) {
@@ -2677,17 +2756,24 @@ beltStage.addEventListener('mousemove', evt => {
 beltStage.addEventListener('mouseleave', hideTip);
 
 beltStage.addEventListener('click', evt => {
-  const { box } = beltHit(evt);
-  if (!box) return;
-  const list = belt.bins[box.key];
-  $('beltBinTitle').textContent = box.name + ' — ' + list.length +
+  const { box, crate } = beltHit(evt);
+  if (!box && !crate) return;
+
+  // The crate holds parcels that were never judged at all, so there is no
+  // verdict to show against the key - only what should have been done with them.
+  const list = crate ? belt.dump : belt.bins[box.key];
+  const title = crate ? 'Off the end' : box.name;
+  $('beltBinTitle').textContent = title + ' — ' + list.length +
     (list.length === 1 ? ' parcel' : ' parcels');
   $('beltBinRows').innerHTML = list.length
-    ? list.slice().reverse().map(p =>
-        '<td class="mono" style="color:' + (p.correct ? 'var(--good)' : 'var(--critical)') + '">' +
-        (p.correct ? 'right' : 'should be ' + p.gold) + '</td><td>' + escapeHtml(p.text) + '</td>')
+    ? list.slice().reverse().slice(0, 300).map(p => crate
+        ? '<td class="mono" style="color:var(--ink-3)">' + escapeHtml(p.gold) + '</td><td>' +
+          escapeHtml(p.text) + '</td>'
+        : '<td class="mono" style="color:' + (p.correct ? 'var(--good)' : 'var(--critical)') + '">' +
+          (p.correct ? 'right' : 'should be ' + p.gold) + '</td><td>' + escapeHtml(p.text) + '</td>')
         .map(r => '<tr>' + r + '</tr>').join('')
-    : '<tr><td colspan="2" style="color:var(--ink-3)">Nothing in this bin yet.</td></tr>';
+    : '<tr><td colspan="2" style="color:var(--ink-3)">Nothing here yet.</td></tr>';
+  $('beltBinCol').textContent = crate ? 'Never judged' : 'Against the key';
   $('beltBinPanel').style.display = 'block';
 });
 $('beltBinClose').addEventListener('click', () => { $('beltBinPanel').style.display = 'none'; });
