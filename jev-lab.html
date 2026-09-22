@@ -234,13 +234,164 @@
     .kpi .value { font-size: 19px; }
     td, th { padding: 6px 5px; }
   }
+
+  /* --- polish ----------------------------------------------------------
+   * Presentation only. Everything below restyles what is already on the page;
+   * no element's behaviour, id or data depends on it. Status colours stay
+   * reserved for status, and the three category colours stay the categories.
+   */
+  body {
+    background:
+      radial-gradient(1200px 600px at 12% -10%, color-mix(in srgb, var(--incident) 16%, transparent), transparent 60%),
+      radial-gradient(900px 500px at 95% 0%, color-mix(in srgb, var(--problem) 10%, transparent), transparent 55%),
+      var(--surface-0);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1160px; padding-top: 36px; }
+
+  header { margin-bottom: 8px; }
+  header .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-2); padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--axis); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+    margin-bottom: 14px;
+  }
+  header .eyebrow i {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent);
+  }
+  header h1 {
+    font-size: clamp(30px, 4.4vw, 44px); line-height: 1.05; letter-spacing: -0.025em;
+    margin-bottom: 12px; font-weight: 800;
+  }
+  header h1 span {
+    background: linear-gradient(90deg, var(--incident), var(--problem));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header p { font-size: 15px; line-height: 1.6; margin-bottom: 22px; }
+
+  /* Section jump links: the page has six experiments and is long. */
+  .jump {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding: 10px 0; margin: 0 0 18px;
+    background: color-mix(in srgb, var(--surface-0) 82%, transparent);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--grid);
+  }
+  .jump a {
+    font-size: 12px; font-weight: 600; text-decoration: none; color: var(--ink-2);
+    padding: 6px 12px; border-radius: 999px; border: 1px solid transparent;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .jump a:hover { color: var(--ink-1); background: var(--surface-2); border-color: var(--axis); }
+  .panel[id] { scroll-margin-top: 64px; }
+
+  .panel {
+    position: relative;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 45%, var(--surface-1)), var(--surface-1) 140px);
+    border-radius: 16px; padding: 22px; margin-bottom: 22px;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--ink-1) 5%, transparent) inset,
+                0 18px 40px -24px rgba(0, 0, 0, .55);
+  }
+  .panel .panel { box-shadow: none; border-radius: 12px; }
+  .panel > h2 {
+    font-size: 18px; text-transform: none; letter-spacing: -0.01em; color: var(--ink-1);
+    font-weight: 700; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
+  }
+  .panel > h2::before {
+    content: ""; width: 4px; height: 18px; border-radius: 2px;
+    background: linear-gradient(180deg, var(--incident), var(--problem));
+  }
+
+  .controls { gap: 12px; }
+  .field label { font-weight: 600; letter-spacing: .06em; }
+  select, button {
+    border-radius: 9px; padding: 8px 14px; font-weight: 500;
+    transition: background .15s, border-color .15s, transform .08s, box-shadow .15s;
+  }
+  select:hover, button:hover:not(:disabled) { border-color: var(--ink-3); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  select:focus-visible, button:focus-visible, input:focus-visible, a:focus-visible {
+    outline: 2px solid var(--incident); outline-offset: 2px;
+  }
+  button.primary {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--incident) 88%, #fff), var(--incident));
+    box-shadow: 0 6px 18px -8px var(--incident);
+  }
+  button.primary:hover:not(:disabled) {
+    box-shadow: 0 8px 22px -6px var(--incident); border-color: var(--incident);
+  }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
+    background: var(--grid); margin: 8px 0;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--ink-1); border: 3px solid var(--incident);
+    box-shadow: 0 2px 6px rgba(0,0,0,.4); cursor: pointer;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--ink-1); border: 3px solid var(--incident); cursor: pointer;
+  }
+
+  .kpis { gap: 12px; }
+  .kpi {
+    border: 1px solid var(--grid); border-radius: 12px; padding: 14px 16px;
+    background: linear-gradient(180deg, var(--surface-2), color-mix(in srgb, var(--surface-2) 60%, var(--surface-1)));
+  }
+  .kpi .value {
+    font-size: 26px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+    margin: 4px 0 2px;
+  }
+  .kpi .label { font-weight: 600; letter-spacing: .07em; }
+
+  canvas#stage, canvas#dupStage, canvas#beltStage, canvas#truckStage {
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink-1) 3%, transparent) inset,
+                0 12px 32px -20px rgba(0, 0, 0, .7);
+  }
+
+  .note {
+    font-size: 13px; line-height: 1.65; color: var(--ink-2);
+    margin-top: 16px; padding: 14px 16px; border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-0) 55%, transparent);
+    border: 1px solid var(--grid);
+  }
+  .note strong { color: var(--ink-1); }
+
+  .status {
+    padding: 8px 12px; border-radius: 9px; border: 1px solid var(--grid);
+    background: color-mix(in srgb, var(--surface-0) 55%, transparent);
+  }
+  .status.err { border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+  .status:empty { display: none; }
+
+  .team-col { border-radius: 12px; }
+  .chip { border-radius: 6px; transition: transform .12s; }
+  .chip:hover { transform: translateY(-1px); }
+  table tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+
+  #tooltip {
+    border-radius: 10px !important;
+    box-shadow: 0 12px 30px -10px rgba(0,0,0,.6);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
 
   <header>
-    <h1>Jev Lab</h1>
+    <div class="eyebrow"><i></i>TypeSafe · System One · Jev</div>
+    <h1><span>Jev</span> Lab</h1>
     <p>
       A benchmark for TypeSafe's System One model, on its own: how fast it turns
       support-ticket text into a typed decision, and how often that decision is
@@ -249,6 +400,15 @@
       The sorting simulation is <a href="foodsim_data_sorting.html">on its own page</a>.
     </p>
   </header>
+
+  <nav class="jump" aria-label="Experiments">
+    <a href="#liveStage">Live</a>
+    <a href="#sec-board">Routing board</a>
+    <a href="#sec-race">Race</a>
+    <a href="#sec-dups">Duplicates</a>
+    <a href="#sec-belt">The belt</a>
+    <a href="#sec-bench">Benchmark</a>
+  </nav>
 
   <div class="panel" id="liveStage">
     <h2>Live</h2>
@@ -319,7 +479,7 @@
 
 
 
-  <div class="panel">
+  <div class="panel" id="sec-board">
     <h2>Routing board — type, team and product in one pass</h2>
     <div class="controls">
       <button class="primary" id="boardRun">Route tickets</button>
@@ -389,7 +549,7 @@
       classifier without that option will invent one.
     </div>
   </div>
-  <div class="panel">
+  <div class="panel" id="sec-race">
     <h2>Race — Jev against the keyword rules</h2>
     <div class="controls">
       <button class="primary" id="raceRun">Run race</button>
@@ -440,7 +600,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="sec-dups">
     <h2>Duplicates — the same fault in different words</h2>
     <div class="controls">
       <button class="primary" id="dupRun">Find duplicates</button>
@@ -478,7 +638,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="sec-belt">
     <h2>The belt — twenty bins, and only so many hands</h2>
     <div class="controls">
       <button class="primary" id="beltToggle">Start the belt</button>
@@ -566,7 +726,7 @@
       went into it.
     </div>
   </div>
-  <div class="panel">
+  <div class="panel" id="sec-bench">
     <h2>Run</h2>
     <div class="controls">
       <div class="field">
