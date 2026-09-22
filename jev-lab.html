@@ -491,6 +491,7 @@
         <label for="beltRate">Parcels per second <span id="beltRateVal" class="mono">2.0</span></label>
         <input type="range" id="beltRate" min="2" max="600" value="20" step="1">
       </div>
+      <button id="beltTrucksToggle">Stop the trucks</button>
       <div class="field">
         <label for="beltTrucks">Trucks <span id="beltTrucksVal" class="mono">8</span></label>
         <input type="range" id="beltTrucks" min="1" max="30" value="8" step="1">
@@ -555,7 +556,9 @@
       gives away the bin. Trucks wait for a load of four, or leave part-full rather
       than strand a quiet site, and a truck is gone for its whole round trip — so
       too few of them back the dock up while the belt is still keeping up
-      perfectly. Click a site to read the notes that were driven to it.
+      perfectly. Stopping the trucks stops the second decision too — nothing is
+      asked about a parcel nobody is going to drive anywhere — and the dock simply
+      grows until they start again. Click a site to read the notes driven to it.
       <br><br>
       <strong>Bins are neutral on purpose.</strong> Twenty distinguishable colours do
       not exist, so a parcel is marked green or red for whether it landed in the bin
@@ -2845,6 +2848,7 @@ const truckStage = $('truckStage');
 const tctx = truckStage.getContext('2d');
 
 const yard = {
+  running: true,
   dock: [], loads: {}, trucks: [], sites: {}, log: {},
   shipped: 0, right: 0, latencies: [], inFlight: 0, queue: []
 };
@@ -2942,6 +2946,11 @@ async function yardSend(items, attempt) {
 }
 
 function yardDispatch() {
+  // Stopping the trucks stops the second decision too: nothing is asked about a
+  // parcel nobody is going to drive anywhere. Trucks already out finish their
+  // run rather than vanishing mid-yard.
+  if (!yard.running) return;
+
   // Every parcel on the dock without a destination, in batches, one question
   // each - the same shape as the sorters' request, one stage further on.
   const waiting = yard.dock.filter(p => !p.site && !p.asked);
@@ -3049,9 +3058,9 @@ function yardDraw(size) {
   tctx.beginPath(); tctx.roundRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1, 6);
   tctx.fill(); tctx.stroke();
   tctx.textAlign = 'center';
-  tctx.fillStyle = cssVar('--ink-3');
+  tctx.fillStyle = yard.running ? cssVar('--ink-3') : cssVar('--warning');
   tctx.font = '600 9px ' + cssVar('--ui');
-  tctx.fillText('LOADING BAY', b.x + b.w / 2, b.y + 14);
+  tctx.fillText(yard.running ? 'LOADING BAY' : 'TRUCKS STOPPED', b.x + b.w / 2, b.y + 14);
   const waiting = yard.dock.length + SITES.reduce((n, s) => n + yard.loads[s.key].length, 0);
   tctx.fillStyle = cssVar('--ink-1');
   tctx.font = '700 18px ' + cssVar('--mono');
@@ -3096,7 +3105,9 @@ function yardStats() {
   const waiting = yard.dock.length + SITES.reduce((n, s) => n + yard.loads[s.key].length, 0);
   $('beDock').textContent = waiting;
   const out = yard.trucks.filter(t => t.state !== 'idle').length;
-  $('beDockSub').textContent = out + ' of ' + yard.trucks.length + ' trucks out';
+  $('beDockSub').textContent = yard.running || out
+    ? out + ' of ' + yard.trucks.length + ' trucks out'
+    : 'trucks stopped — nothing is leaving';
 }
 
 function yardClear() {
@@ -3108,6 +3119,10 @@ function yardClear() {
 
 $('beltTrucks').addEventListener('input', () => {
   $('beltTrucksVal').textContent = $('beltTrucks').value;
+});
+$('beltTrucksToggle').addEventListener('click', () => {
+  yard.running = !yard.running;
+  $('beltTrucksToggle').textContent = yard.running ? 'Stop the trucks' : 'Start the trucks';
 });
 
 truckStage.addEventListener('mousemove', evt => {
