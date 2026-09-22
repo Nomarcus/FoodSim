@@ -190,6 +190,10 @@
     display: block; width: 100%; height: 404px; margin-top: 12px;
     background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
   }
+  canvas#truckStage {
+    display: block; width: 100%; height: 300px; margin-top: 8px;
+    background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
+  }
 
   svg { display: block; width: 100%; overflow: visible; }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
@@ -487,9 +491,15 @@
         <label for="beltRate">Parcels per second <span id="beltRateVal" class="mono">2.0</span></label>
         <input type="range" id="beltRate" min="2" max="600" value="20" step="1">
       </div>
+      <div class="field">
+        <label for="beltTrucks">Trucks <span id="beltTrucksVal" class="mono">8</span></label>
+        <input type="range" id="beltTrucks" min="1" max="30" value="8" step="1">
+      </div>
     </div>
 
     <canvas id="beltStage" aria-label="Parcels moving along a conveyor past sorters, into twenty bins"></canvas>
+
+    <canvas id="truckStage" aria-label="Trucks carrying sorted parcels out to thirty sites"></canvas>
 
     <div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="label">Into a bin</div><div class="value" id="beSorted">0</div><div class="sub" id="beSortedSub">&nbsp;</div></div>
@@ -498,6 +508,9 @@
       <div class="kpi"><div class="label">Decision</div><div class="value" id="beLat">—</div><div class="sub">round trip, per parcel</div></div>
       <div class="kpi"><div class="label">Cleared / s</div><div class="value" id="beTput">0.0</div><div class="sub">last 5 seconds</div></div>
       <div class="kpi"><div class="label">Sorters busy</div><div class="value" id="beBusy">0</div><div class="sub" id="beBusySub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Delivered to a site</div><div class="value" id="beShipped">0</div><div class="sub" id="beShippedSub">by truck</div></div>
+      <div class="kpi"><div class="label">Right site</div><div class="value" id="beSiteAcc">—</div><div class="sub" id="beSiteAccSub">against the answer key</div></div>
+      <div class="kpi"><div class="label">On the dock</div><div class="value" id="beDock">0</div><div class="sub" id="beDockSub">waiting for a truck</div></div>
     </div>
 
     <div class="status" id="beltStatus">Press start. Turn the rate up until parcels begin running off the end.</div>
@@ -532,6 +545,17 @@
       Everything that passes the last pair of hands lands in the crate at the end,
       where it piles up instead of disappearing — click it to read what was never
       even looked at.
+      <br><br>
+      <strong>Then it has to go somewhere.</strong> Sorted is not shipped. Every
+      parcel also carries a shipping note — "leave it with the crane crew on the
+      cold store side" — and which of <strong>thirty sites</strong> that is, is a
+      second choice, asked the same way and batched the same way. The two notes are
+      drawn independently, so the same box of batteries can be bound for the
+      observatory or the ferry: the bin gives the site away no more than the site
+      gives away the bin. Trucks wait for a load of four, or leave part-full rather
+      than strand a quiet site, and a truck is gone for its whole round trip — so
+      too few of them back the dock up while the belt is still keeping up
+      perfectly. Click a site to read the notes that were driven to it.
       <br><br>
       <strong>Bins are neutral on purpose.</strong> Twenty distinguishable colours do
       not exist, so a parcel is marked green or red for whether it landed in the bin
@@ -2380,8 +2404,12 @@ function beltLayout() {
 }
 
 function beltSpawn(lane) {
+  // Two independent notes per parcel: what is in it, and where it is going.
+  // Drawing them separately is what stops the second decision from being
+  // guessable out of the first.
   belt.parcels.push({
     id: ++belt.seq, ...PARCELS[Math.floor(Math.random() * PARCELS.length)],
+    ship: SHIPPING[Math.floor(Math.random() * SHIPPING.length)],
     x: -PARCEL_W, y: lane.mid, state: 'belt', t: 0, from: null, agent: null,
     predicted: null, correct: null
   });
@@ -2503,6 +2531,8 @@ function beltStep(dt, lane) {
         p.state = 'landed';
         if (p.agent) p.agent.parcel = null;
         belt.bins[p.predicted].push(p);
+        // Sorted is not shipped: it now waits on the dock for a destination.
+        yard.dock.push(p);
         belt.sorted++;
         if (p.correct) belt.correct++;
         belt.landings.push(now);
@@ -2694,6 +2724,11 @@ function beltFrame(ts) {
   beltStep(dt, lane);
   beltDraw(lane);
   beltStats();
+
+  const size = yardLayout();
+  yardStep(dt);
+  yardDraw(size);
+  yardStats();
   requestAnimationFrame(beltFrame);
 }
 
@@ -2705,6 +2740,7 @@ function beltClear() {
   belt.sorted = belt.missed = belt.correct = 0;
   belt.latencies = []; belt.landings = []; belt.misses = [];
   belt.spawnDebt = 0; belt.error = null;
+  yardClear();
   $('beltBinPanel').style.display = 'none';
 }
 
@@ -2779,6 +2815,330 @@ beltStage.addEventListener('click', evt => {
 $('beltBinClose').addEventListener('click', () => { $('beltBinPanel').style.display = 'none'; });
 
 $('beltRateVal').textContent = beltRate().toFixed(1);
+
+/* --- the yard ---------------------------------------------------------
+ *
+ * A sorted parcel is only half sorted: it still has to go somewhere. Every
+ * parcel carries a shipping note as well as a delivery note - "leave it with
+ * the crane crew on the cold store side" - and where that is, out of thirty
+ * sites, is the second judgment.
+ *
+ * The two are deliberately independent. The same box of batteries can be
+ * bound for the observatory or the ferry, so nothing about the bin gives the
+ * site away; it has to come from the note.
+ *
+ * Trucks are the queue again, one level up. A truck is out for the length of
+ * its round trip, so a yard with too few of them backs up on the dock while
+ * the belt is still keeping up perfectly.
+ */
+const SITES = TypeSafeTickets.SITES;
+const SHIPPING = TypeSafeTickets.SHIPPING;
+const SITE_CRITERIA = {};
+SITES.forEach(s => { SITE_CRITERIA[s.key] = s.criteria; });
+
+const TRUCK_LOAD = 4;        // parcels a truck takes in one run
+const TRUCK_WAIT = 5000;     // ms before a part-full load goes anyway
+const TRUCK_SPEED = 240;     // px per second
+const UNLOAD_MS = 420;
+
+const truckStage = $('truckStage');
+const tctx = truckStage.getContext('2d');
+
+const yard = {
+  dock: [], loads: {}, trucks: [], sites: {}, log: {},
+  shipped: 0, right: 0, latencies: [], inFlight: 0, queue: []
+};
+SITES.forEach(s => { yard.loads[s.key] = []; yard.sites[s.key] = 0; yard.log[s.key] = []; });
+
+function truckSize() {
+  const ratio = devicePixelRatio || 1;
+  const w = truckStage.clientWidth, h = truckStage.clientHeight;
+  if (truckStage.width !== w * ratio || truckStage.height !== h * ratio) {
+    truckStage.width = w * ratio; truckStage.height = h * ratio;
+    tctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+  return { w, h };
+}
+
+function yardLayout() {
+  const { w, h } = truckSize();
+  yard.bay = { x: 8, y: 14, w: 132, h: h - 28 };
+
+  const cols = 6, rows = 5, gap = 7, left = yard.bay.x + yard.bay.w + 18;
+  const pw = (w - left - 8 - gap * (cols - 1)) / cols;
+  const ph = (h - 16 - gap * (rows - 1)) / rows;
+  yard.pads = SITES.map((s, i) => ({
+    key: s.key, name: s.name,
+    x: left + (i % cols) * (pw + gap),
+    y: 8 + Math.floor(i / cols) * (ph + gap),
+    w: pw, h: ph
+  }));
+
+  const n = parseInt($('beltTrucks').value, 10);
+  while (yard.trucks.length < n) yard.trucks.push({ state: 'idle', load: null, t: 0 });
+  // A truck that is out stays out; only spare ones are taken off the strength.
+  while (yard.trucks.length > n) {
+    const i = yard.trucks.findIndex(t => t.state === 'idle');
+    if (i < 0) break;
+    yard.trucks.splice(i, 1);
+  }
+  yard.trucks.forEach((t, i) => {
+    t.home = {
+      x: yard.bay.x + 24 + (i % 3) * 40,
+      y: yard.bay.y + 32 + Math.floor(i / 3) * 18
+    };
+    if (t.state === 'idle') { t.x = t.home.x; t.y = t.home.y; }
+  });
+  return { w, h };
+}
+
+async function yardSend(items, attempt) {
+  attempt = attempt || 0;
+  const state = { parcels: items.map((p, i) => ({ index: i, shipping_note: p.ship.text })) };
+  const questions = {};
+  items.forEach((_, i) => {
+    questions['site_' + i] = {
+      type: 'choice',
+      instructions: 'A sorted parcel is being loaded for delivery. Its shipping note ' +
+        'is in `parcels[' + i + '].shipping_note`. Which site is it going to?',
+      criteria: SITE_CRITERIA
+    };
+  });
+
+  const started = performance.now();
+  const res = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ state, questions })
+  });
+  const text = await res.text();
+
+  if (!res.ok) {
+    const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+    if (retryable && attempt < 3) {
+      const wait = 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25);
+      await new Promise(r => setTimeout(r, wait));
+      return yardSend(items, attempt + 1);
+    }
+    throw new Error('HTTP ' + res.status);
+  }
+
+  const latency = performance.now() - started;
+  yard.latencies.push(latency);
+  if (yard.latencies.length > 40) yard.latencies.shift();
+  const answers = (JSON.parse(text).answers) || {};
+
+  items.forEach((p, i) => {
+    const ans = answers['site_' + i];
+    const key = ans && yard.loads[ans.choice] ? ans.choice : null;
+    // No usable answer: put it back in the queue rather than leaving it stuck
+    // on the dock marked as already asked.
+    if (!key) { p.asked = false; return; }
+    p.site = key;
+    p.siteRight = key === p.ship.gold;
+    p.waitingSince = performance.now();
+    yard.loads[key].push(p);
+  });
+}
+
+function yardDispatch() {
+  // Every parcel on the dock without a destination, in batches, one question
+  // each - the same shape as the sorters' request, one stage further on.
+  const waiting = yard.dock.filter(p => !p.site && !p.asked);
+  while (waiting.length && yard.inFlight < MAX_IN_FLIGHT) {
+    const items = waiting.splice(0, BELT_BATCH);
+    items.forEach(p => { p.asked = true; });
+    yard.inFlight++;
+    yardSend(items)
+      .catch(() => { items.forEach(p => { p.asked = false; }); })
+      .finally(() => { yard.inFlight--; });
+  }
+
+  yard.dock = yard.dock.filter(p => !p.site);
+
+  const now = performance.now();
+  yard.trucks.forEach(t => {
+    if (t.state !== 'idle') return;
+    // A truck waits for a full load, but not for ever: a part load that has
+    // been standing goes anyway, or a quiet site would never be served.
+    const key = SITES.map(s => s.key).find(k => yard.loads[k].length >= TRUCK_LOAD) ||
+      SITES.map(s => s.key).find(k => yard.loads[k].length &&
+        now - yard.loads[k][0].waitingSince > TRUCK_WAIT);
+    if (!key) return;
+    t.load = yard.loads[key].splice(0, TRUCK_LOAD);
+    t.site = key;
+    t.pad = yard.pads.find(p => p.key === key);
+    t.state = 'out';
+    t.from = { x: t.home.x, y: t.home.y };
+  });
+}
+
+function yardStep(dt) {
+  yardDispatch();
+
+  yard.trucks.forEach(t => {
+    if (t.state === 'idle') return;
+    const target = t.state === 'out'
+      ? { x: t.pad.x + t.pad.w / 2, y: t.pad.y + t.pad.h - 9 }
+      : t.home;
+
+    if (t.state === 'unloading') {
+      t.t += dt * 1000;
+      if (t.t >= UNLOAD_MS) {
+        t.load.forEach(p => {
+          yard.sites[t.site]++;
+          yard.shipped++;
+          if (p.siteRight) yard.right++;
+          const log = yard.log[t.site];
+          log.push(p);
+          if (log.length > 200) log.shift();
+        });
+        t.load = null;
+        t.state = 'back';
+        t.from = { x: t.x, y: t.y };
+      }
+      return;
+    }
+
+    const dx = target.x - t.x, dy = target.y - t.y;
+    const d = Math.hypot(dx, dy);
+    const stepD = TRUCK_SPEED * dt;
+    if (d <= stepD) {
+      t.x = target.x; t.y = target.y;
+      if (t.state === 'out') { t.state = 'unloading'; t.t = 0; }
+      else { t.state = 'idle'; }
+    } else {
+      t.x += (dx / d) * stepD; t.y += (dy / d) * stepD;
+      t.heading = dx;
+    }
+  });
+}
+
+function drawTruck(t) {
+  const flip = (t.heading || 1) < 0 ? -1 : 1;
+  tctx.save();
+  tctx.translate(t.x, t.y);
+  tctx.scale(flip, 1);
+  // body
+  tctx.fillStyle = t.load ? cssVar('--incident') : cssVar('--axis');
+  tctx.beginPath(); tctx.roundRect(-14, -8, 20, 12, 2); tctx.fill();
+  // cab
+  tctx.beginPath(); tctx.roundRect(6, -5, 8, 9, 2); tctx.fill();
+  // wheels
+  tctx.fillStyle = cssVar('--ink-3');
+  tctx.beginPath(); tctx.arc(-8, 5, 2.6, 0, Math.PI * 2); tctx.fill();
+  tctx.beginPath(); tctx.arc(9, 5, 2.6, 0, Math.PI * 2); tctx.fill();
+  tctx.restore();
+
+  if (t.load) {
+    tctx.fillStyle = cssVar('--ink-1');
+    tctx.font = '700 9px ' + cssVar('--mono');
+    tctx.textAlign = 'center';
+    tctx.fillText(String(t.load.length), t.x - 4 * flip, t.y + 1);
+  }
+}
+
+function yardDraw(size) {
+  const { w, h } = size;
+  tctx.clearRect(0, 0, w, h);
+
+  // the loading bay
+  const b = yard.bay;
+  tctx.fillStyle = cssVar('--surface-1');
+  tctx.strokeStyle = cssVar('--axis'); tctx.lineWidth = 1;
+  tctx.beginPath(); tctx.roundRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1, 6);
+  tctx.fill(); tctx.stroke();
+  tctx.textAlign = 'center';
+  tctx.fillStyle = cssVar('--ink-3');
+  tctx.font = '600 9px ' + cssVar('--ui');
+  tctx.fillText('LOADING BAY', b.x + b.w / 2, b.y + 14);
+  const waiting = yard.dock.length + SITES.reduce((n, s) => n + yard.loads[s.key].length, 0);
+  tctx.fillStyle = cssVar('--ink-1');
+  tctx.font = '700 18px ' + cssVar('--mono');
+  tctx.fillText(String(waiting), b.x + b.w / 2, b.y + b.h - 10);
+  tctx.fillStyle = cssVar('--ink-3');
+  tctx.font = '9px ' + cssVar('--ui');
+  tctx.fillText('waiting', b.x + b.w / 2, b.y + b.h - 24);
+
+  // the sites
+  yard.pads.forEach(pad => {
+    const n = yard.sites[pad.key];
+    tctx.fillStyle = cssVar('--surface-1');
+    tctx.strokeStyle = cssVar('--axis'); tctx.lineWidth = 1;
+    tctx.beginPath(); tctx.roundRect(pad.x + 0.5, pad.y + 0.5, pad.w - 1, pad.h - 1, 5);
+    tctx.fill(); tctx.stroke();
+    tctx.fillStyle = cssVar('--ink-2');
+    tctx.font = '600 9px ' + cssVar('--ui');
+    tctx.fillText(pad.name, pad.x + pad.w / 2, pad.y + 13, pad.w - 6);
+    tctx.fillStyle = cssVar('--ink-1');
+    tctx.font = '700 14px ' + cssVar('--mono');
+    tctx.fillText(String(n), pad.x + pad.w / 2, pad.y + 30);
+
+    const marks = yard.log[pad.key].slice(-12);
+    marks.forEach((p, i) => {
+      tctx.fillStyle = p.siteRight ? cssVar('--good') : cssVar('--critical');
+      tctx.fillRect(pad.x + 7 + (i % 6) * 7, pad.y + 38 + Math.floor(i / 6) * 7, 5, 5);
+    });
+  });
+
+  yard.trucks.forEach(drawTruck);
+}
+
+function yardStats() {
+  $('beShipped').textContent = yard.shipped;
+  const avg = yard.latencies.length
+    ? Math.round(yard.latencies.reduce((a, b) => a + b, 0) / yard.latencies.length) : 0;
+  $('beShippedSub').textContent = avg ? avg + ' ms to pick a site' : 'by truck';
+  $('beSiteAcc').textContent = yard.shipped
+    ? Math.round((yard.right / yard.shipped) * 100) + '%' : '—';
+  $('beSiteAccSub').textContent = yard.shipped
+    ? yard.right + ' of ' + yard.shipped + ' against the answer key' : 'against the answer key';
+  const waiting = yard.dock.length + SITES.reduce((n, s) => n + yard.loads[s.key].length, 0);
+  $('beDock').textContent = waiting;
+  const out = yard.trucks.filter(t => t.state !== 'idle').length;
+  $('beDockSub').textContent = out + ' of ' + yard.trucks.length + ' trucks out';
+}
+
+function yardClear() {
+  yard.dock = [];
+  SITES.forEach(s => { yard.loads[s.key] = []; yard.sites[s.key] = 0; yard.log[s.key] = []; });
+  yard.trucks.forEach(t => { t.state = 'idle'; t.load = null; });
+  yard.shipped = 0; yard.right = 0; yard.latencies = [];
+}
+
+$('beltTrucks').addEventListener('input', () => {
+  $('beltTrucksVal').textContent = $('beltTrucks').value;
+});
+
+truckStage.addEventListener('mousemove', evt => {
+  const r = truckStage.getBoundingClientRect();
+  const x = evt.clientX - r.left, y = evt.clientY - r.top;
+  const pad = (yard.pads || []).find(p => x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h);
+  if (!pad) { truckStage.style.cursor = 'default'; hideTip(); return; }
+  truckStage.style.cursor = yard.log[pad.key].length ? 'pointer' : 'default';
+  showTip(evt, '<strong>' + escapeHtml(pad.name) + '</strong><br>' + yard.sites[pad.key] +
+    ' parcels delivered' + (yard.log[pad.key].length ? ' — click to read the notes' : ''));
+});
+truckStage.addEventListener('mouseleave', hideTip);
+
+truckStage.addEventListener('click', evt => {
+  const r = truckStage.getBoundingClientRect();
+  const x = evt.clientX - r.left, y = evt.clientY - r.top;
+  const pad = (yard.pads || []).find(p => x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h);
+  if (!pad) return;
+  const list = yard.log[pad.key];
+  $('beltBinTitle').textContent = pad.name + ' — ' + yard.sites[pad.key] +
+    (yard.sites[pad.key] === 1 ? ' parcel' : ' parcels');
+  $('beltBinCol').textContent = 'Against the key';
+  $('beltBinRows').innerHTML = list.length
+    ? list.slice().reverse().map(p =>
+        '<tr><td class="mono" style="color:' + (p.siteRight ? 'var(--good)' : 'var(--critical)') + '">' +
+        (p.siteRight ? 'right' : 'should be ' + p.ship.gold) + '</td><td>' +
+        escapeHtml(p.ship.text) + '</td></tr>').join('')
+    : '<tr><td colspan="2" style="color:var(--ink-3)">Nothing delivered here yet.</td></tr>';
+  $('beltBinPanel').style.display = 'block';
+});
+
 requestAnimationFrame(beltFrame);
 
 fetch(PROXY, { headers: { Accept: 'application/json' } })

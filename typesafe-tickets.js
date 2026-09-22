@@ -940,6 +940,114 @@
     { gold: 'firstaid', text: 'Defibrillator pads, in date until next year.' }
   ];
 
+
+  /*
+   * Where a sorted parcel is driven next.
+   *
+   * Thirty sites, and a shipping note that never names one. "Leave it with the
+   * crane crew on the cold store side" is the harbour; "the night gang setting
+   * up before the first race" is the racetrack. The note is independent of what
+   * is in the parcel, so the second decision cannot be inferred from the first -
+   * the same box of batteries can be going to the observatory or the ferry.
+   *
+   * `gold` is the hand-written answer key, and is never sent.
+   */
+  var SITES = [
+    { key: 'harbour',    name: 'Harbour depot',   criteria: 'The docks: cranes, containers, the cold store, ships being unloaded.' },
+    { key: 'airport',    name: 'Airport hub',     criteria: 'The airport: aircraft stands, baggage halls, the runway apron.' },
+    { key: 'academy',    name: 'Academy campus',  criteria: 'A teaching campus: lecture halls, classrooms, students and tutors.' },
+    { key: 'hospital',   name: "St Anne's",       criteria: 'A hospital: wards, theatres, nursing staff, patients.' },
+    { key: 'stadium',    name: 'The stadium',     criteria: 'A sports stadium: stands, pitch, turnstiles, match days.' },
+    { key: 'brewery',    name: 'The brewery',     criteria: 'A brewery: mash tuns, fermenters, kegs and casks.' },
+    { key: 'foundry',    name: 'The foundry',     criteria: 'A metal foundry: furnaces, molten pours, castings.' },
+    { key: 'datacentre', name: 'Datacentre',      criteria: 'A datacentre: server halls, cold aisles, racks and cooling.' },
+    { key: 'museum',     name: 'City museum',     criteria: 'A museum: galleries, exhibits, display cases, curators.' },
+    { key: 'observatory',name: 'Observatory',     criteria: 'An observatory: telescopes, the dome, night observing runs.' },
+    { key: 'quarry',     name: 'The quarry',      criteria: 'A stone quarry: blasting, crushers, haul trucks, dust.' },
+    { key: 'vineyard',   name: 'The vineyard',    criteria: 'A vineyard: vines, the harvest, the press house.' },
+    { key: 'ferry',      name: 'Ferry terminal',  criteria: 'A ferry terminal: car decks, the ramp, foot passengers, sailings.' },
+    { key: 'refinery',   name: 'The refinery',    criteria: 'A refinery: distillation columns, flare stack, pipework, permits.' },
+    { key: 'sawmill',    name: 'The sawmill',     criteria: 'A sawmill: logs, the green chain, blades, stacked timber.' },
+    { key: 'aquarium',   name: 'The aquarium',    criteria: 'An aquarium: tanks, the reef display, divers feeding fish.' },
+    { key: 'printworks', name: 'The printworks',  criteria: 'A printing works: presses, plates, the folding line, print runs.' },
+    { key: 'granary',    name: 'The granary',     criteria: 'A grain store: silos, augers, the weighbridge, harvest intake.' },
+    { key: 'racetrack',  name: 'The racetrack',   criteria: 'A racing circuit: the pit lane, grandstands, race days.' },
+    { key: 'coastguard', name: 'Coastguard',      criteria: 'A coastguard station: the lifeboat, call-outs, the watch room.' },
+    { key: 'studio',     name: 'Film studio',     criteria: 'A film studio: sound stages, the props store, a shoot in progress.' },
+    { key: 'bakery',     name: 'Central bakery',  criteria: 'A bakery: ovens, the proving room, the night bake.' },
+    { key: 'laundry',    name: 'The laundry',     criteria: 'An industrial laundry: washers, the press line, linen rounds.' },
+    { key: 'greenhouse', name: 'The greenhouses', criteria: 'Glasshouses: seedlings, irrigation, the growing benches.' },
+    { key: 'archive',    name: 'The archive',     criteria: 'A records archive: boxed files, the reading room, cataloguing.' },
+    { key: 'fishmarket', name: 'Fish market',     criteria: 'A fish market: the auction floor, ice, early morning trade.' },
+    { key: 'garage',     name: 'Bus garage',      criteria: 'A bus garage: the pits, the wash, drivers signing on.' },
+    { key: 'lighthouse', name: 'The lighthouse',  criteria: 'A lighthouse: the lamp room, the keeper, the cliff path.' },
+    { key: 'library',    name: 'Central library',  criteria: 'A public library: the stacks, the issue desk, the reading rooms.' },
+    { key: 'icerink',    name: 'The ice rink',    criteria: 'An ice rink: the pad, the resurfacer, skate hire, the plant room.' }
+  ];
+
+  var SHIPPING = [
+    { gold: 'harbour', text: 'Leave it with the crane crew on the cold store side.' },
+    { gold: 'harbour', text: 'The night gang unloading the container ship are asking for it.' },
+    { gold: 'airport', text: 'Airside, stand 14 — the baggage hall office will sign for it.' },
+    { gold: 'airport', text: 'Needed before the first departures, by the apron gate.' },
+    { gold: 'academy', text: 'For the lecture theatre on the second floor, before term starts.' },
+    { gold: 'academy', text: 'The tutors want it in the seminar rooms for freshers week.' },
+    { gold: 'hospital', text: 'Ward 6 asked twice; leave it at the nursing station.' },
+    { gold: 'hospital', text: 'Theatre stores, and it cannot wait until after the list.' },
+    { gold: 'stadium', text: 'Under the north stand, before the turnstiles open.' },
+    { gold: 'stadium', text: 'The groundsman wants it pitchside on a match day.' },
+    { gold: 'brewery', text: 'Next to the fermenters, the mash is on at six.' },
+    { gold: 'brewery', text: 'For the keg line crew, before the Friday racking.' },
+    { gold: 'foundry', text: 'Drop it by the furnace floor office, not the yard.' },
+    { gold: 'foundry', text: 'The pour is at eleven and the casting team need it first.' },
+    { gold: 'datacentre', text: 'Cold aisle 4, and ring the hall before you badge in.' },
+    { gold: 'datacentre', text: 'For the rack build, goods-in is behind the chillers.' },
+    { gold: 'museum', text: 'The curator wants it before the new gallery opens.' },
+    { gold: 'museum', text: 'Round the back, past the display cases being crated.' },
+    { gold: 'observatory', text: 'Up the hill road, and only between observing runs.' },
+    { gold: 'observatory', text: 'The dome crew need it before tonight, while it is light.' },
+    { gold: 'quarry', text: 'Site office by the crusher, and mind the haul road.' },
+    { gold: 'quarry', text: 'Not during blasting — leave it at the weigh hut.' },
+    { gold: 'vineyard', text: 'Up at the press house, they are picking all week.' },
+    { gold: 'vineyard', text: 'Between the rows is fine, the pickers are on the south slope.' },
+    { gold: 'ferry', text: 'Before the 07:40 sailing, by the vehicle ramp.' },
+    { gold: 'ferry', text: 'Foot passenger entrance, the car deck crew will take it.' },
+    { gold: 'refinery', text: 'Permit needed at the gate; the column 3 team asked for it.' },
+    { gold: 'refinery', text: 'Not past the flare stack — use the east pipework gate.' },
+    { gold: 'sawmill', text: 'By the green chain, the log deck is blocked this week.' },
+    { gold: 'sawmill', text: 'For the blade shop, before the timber stack is moved.' },
+    { gold: 'aquarium', text: 'Behind the reef tank, ask for the dive team.' },
+    { gold: 'aquarium', text: 'Before feeding, and keep it away from the sea water line.' },
+    { gold: 'printworks', text: 'Press hall, before the overnight run starts.' },
+    { gold: 'printworks', text: 'The plate room want it — the folder is down until it arrives.' },
+    { gold: 'granary', text: 'Over the weighbridge first, then the silo office.' },
+    { gold: 'granary', text: 'Intake is flat out with the harvest; leave it by the augers.' },
+    { gold: 'racetrack', text: 'Pit lane, and only before the circuit goes live.' },
+    { gold: 'racetrack', text: 'The night gang setting up the grandstands are waiting on it.' },
+    { gold: 'coastguard', text: 'The watch room, and not while the boat is out on a shout.' },
+    { gold: 'coastguard', text: 'Leave it with the crew at the slipway.' },
+    { gold: 'studio', text: 'Stage 2, and they are shooting until seven so knock first.' },
+    { gold: 'studio', text: 'For the props store, before the set is struck.' },
+    { gold: 'bakery', text: 'Before the night bake, the ovens are on from ten.' },
+    { gold: 'bakery', text: 'By the proving room door, not the loading yard.' },
+    { gold: 'laundry', text: 'The press line is short and the linen round leaves at five.' },
+    { gold: 'laundry', text: 'Goods-in past the washers, ask for the shift lead.' },
+    { gold: 'greenhouse', text: 'Down by the growing benches, the seedlings go out Monday.' },
+    { gold: 'greenhouse', text: 'The irrigation crew want it inside the glass, not the yard.' },
+    { gold: 'archive', text: 'The reading room is closed, so use the cataloguing door.' },
+    { gold: 'archive', text: 'For the boxed files on level -1, before the audit.' },
+    { gold: 'fishmarket', text: 'Before the auction, and it has to be on the floor by four.' },
+    { gold: 'fishmarket', text: 'Next to the ice machine, the early traders will take it.' },
+    { gold: 'garage', text: 'Over the pits, the drivers sign on at half four.' },
+    { gold: 'garage', text: 'Past the wash, and not in the way of the morning pull-out.' },
+    { gold: 'lighthouse', text: 'Up the cliff path, the keeper is expecting it.' },
+    { gold: 'lighthouse', text: 'For the lamp room, and only in daylight.' },
+    { gold: 'library', text: 'The issue desk will take it, the stacks are being moved.' },
+    { gold: 'library', text: 'Before the reading rooms open to the public.' },
+    { gold: 'icerink', text: 'Plant room, and after the resurfacer has been round.' },
+    { gold: 'icerink', text: 'Skate hire counter, before the public session.' }
+  ];
+
   global.TypeSafeTickets = {
     TicketLabeler: TicketLabeler,
     classifyKeyword: classifyKeyword,
@@ -948,6 +1056,8 @@
     SUPPLY_TICKETS: SUPPLY_TICKETS,
     PARCEL_BINS: PARCEL_BINS,
     PARCELS: PARCELS,
+    SITES: SITES,
+    SHIPPING: SHIPPING,
     TEAMS: TEAMS,
     PRODUCTS: PRODUCTS,
     CRITERIA: CRITERIA,
