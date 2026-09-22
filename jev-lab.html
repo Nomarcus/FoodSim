@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Jev Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   /*
    * Colours come from the validated categorical palette: slots 1-3, which clear
@@ -12,42 +15,34 @@
    * is mostly about reading three categories against each other.
    */
   :root {
-    color-scheme: dark;
-    --surface-0: #0a0d20;
-    --surface-1: #0f1430;
-    --surface-2: #161c3d;
-    --ink-1: #ffffff;
-    --ink-2: #c3c2b7;
-    --ink-3: #898781;
-    --grid: #2c3152;
-    --axis: #383d5e;
+    /* Light is the theme. The category colours are the palette's validated
+     * light-mode slots (all-pairs CVD and normal-vision gates pass on white);
+     * green sits under 3:1 against white, which is allowed because every
+     * category mark on this page carries a text label beside it. */
+    color-scheme: light;
+    --surface-0: #f5f7fb;
+    --surface-1: #ffffff;
+    --surface-2: #f2f4f9;
+    --ink-1: #0f172a;
+    --ink-2: #475569;
+    --ink-3: #8a94a6;
+    --grid: #e6e9f1;
+    --axis: #d3d9e6;
 
-    --incident: #3987e5;
-    --request:  #d95926;
-    --problem:  #199e70;
+    --incident: #2a78d6;
+    --request:  #eb6834;
+    --problem:  #1baf7a;
 
-    --good: #0ca30c;
-    --warning: #fab219;
+    --good: #0f9d58;
+    --warning: #c98a00;   /* darker amber: #fab219 vanished on white */
     --critical: #d03b3b;
 
-    --mono: 'Fira Code', ui-monospace, Consolas, monospace;
-    --ui: 'Inter', system-ui, -apple-system, sans-serif;
-  }
-  @media (prefers-color-scheme: light) {
-    :root:where(:not([data-theme="dark"])) {
-      color-scheme: light;
-      --surface-0: #f9f9f7;
-      --surface-1: #fcfcfb;
-      --surface-2: #f0efec;
-      --ink-1: #0b0b0b;
-      --ink-2: #52514e;
-      --ink-3: #898781;
-      --grid: #e1e0d9;
-      --axis: #c3c2b7;
-      --incident: #2a78d6;
-      --request:  #eb6834;
-      --problem:  #1baf7a;
-    }
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .05), 0 1px 1px rgba(15, 23, 42, .03);
+    --shadow-md: 0 1px 2px rgba(15, 23, 42, .04), 0 8px 24px -8px rgba(15, 23, 42, .10);
+    --shadow-lg: 0 1px 2px rgba(15, 23, 42, .04), 0 24px 48px -20px rgba(15, 23, 42, .18);
+
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    --ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   }
 
   * { box-sizing: border-box; }
@@ -235,152 +230,174 @@
     td, th { padding: 6px 5px; }
   }
 
-  /* --- polish ----------------------------------------------------------
+  /* --- look ------------------------------------------------------------
    * Presentation only. Everything below restyles what is already on the page;
    * no element's behaviour, id or data depends on it. Status colours stay
    * reserved for status, and the three category colours stay the categories.
    */
   body {
     background:
-      radial-gradient(1200px 600px at 12% -10%, color-mix(in srgb, var(--incident) 16%, transparent), transparent 60%),
-      radial-gradient(900px 500px at 95% 0%, color-mix(in srgb, var(--problem) 10%, transparent), transparent 55%),
+      radial-gradient(900px 480px at 8% -8%, color-mix(in srgb, var(--incident) 12%, transparent), transparent 62%),
+      radial-gradient(800px 460px at 100% -4%, color-mix(in srgb, var(--problem) 10%, transparent), transparent 60%),
+      radial-gradient(700px 420px at 60% 110%, color-mix(in srgb, var(--request) 7%, transparent), transparent 60%),
       var(--surface-0);
     background-attachment: fixed;
-    -webkit-font-smoothing: antialiased;
+    -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01";
   }
-  .wrap { max-width: 1160px; padding-top: 36px; }
+  .wrap { max-width: 1180px; padding: 44px 20px 96px; }
 
-  header { margin-bottom: 8px; }
+  header { margin-bottom: 10px; }
   header .eyebrow {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--ink-2); padding: 4px 10px; border-radius: 999px;
-    border: 1px solid var(--axis); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
-    margin-bottom: 14px;
+    display: inline-flex; align-items: center; gap: 8px; margin-bottom: 18px;
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+    padding: 5px 12px 5px 8px; border-radius: 999px;
+    background: var(--surface-1); border: 1px solid var(--grid); box-shadow: var(--shadow-sm);
   }
   header .eyebrow i {
-    width: 7px; height: 7px; border-radius: 50%; background: var(--good);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent);
+    width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent);
   }
   header h1 {
-    font-size: clamp(30px, 4.4vw, 44px); line-height: 1.05; letter-spacing: -0.025em;
-    margin-bottom: 12px; font-weight: 800;
+    font-size: clamp(36px, 5.2vw, 60px); line-height: 1; letter-spacing: -0.035em;
+    font-weight: 800; margin: 0 0 16px; color: var(--ink-1);
   }
   header h1 span {
-    background: linear-gradient(90deg, var(--incident), var(--problem));
+    background: linear-gradient(95deg, var(--incident) 10%, var(--problem) 90%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  header p { font-size: 15px; line-height: 1.6; margin-bottom: 22px; }
+  header p { font-size: 17px; line-height: 1.6; color: var(--ink-2); max-width: 64ch; margin-bottom: 28px; }
+  a { color: var(--incident); text-underline-offset: 3px; }
 
-  /* Section jump links: the page has six experiments and is long. */
+  /* Jump links float as a glass pill that stays in reach while scrolling. */
   .jump {
-    position: sticky; top: 0; z-index: 20;
-    display: flex; gap: 6px; flex-wrap: wrap;
-    padding: 10px 0; margin: 0 0 18px;
-    background: color-mix(in srgb, var(--surface-0) 82%, transparent);
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--grid);
+    position: sticky; top: 12px; z-index: 30;
+    display: inline-flex; gap: 2px; flex-wrap: wrap;
+    padding: 5px; margin: 0 0 26px; border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+    backdrop-filter: saturate(1.6) blur(14px); -webkit-backdrop-filter: saturate(1.6) blur(14px);
+    border: 1px solid var(--grid); box-shadow: var(--shadow-md);
   }
   .jump a {
-    font-size: 12px; font-weight: 600; text-decoration: none; color: var(--ink-2);
-    padding: 6px 12px; border-radius: 999px; border: 1px solid transparent;
-    transition: color .15s, background .15s, border-color .15s;
+    font-size: 13px; font-weight: 600; text-decoration: none; color: var(--ink-2);
+    padding: 7px 14px; border-radius: 999px; transition: color .15s, background .15s;
   }
-  .jump a:hover { color: var(--ink-1); background: var(--surface-2); border-color: var(--axis); }
-  .panel[id] { scroll-margin-top: 64px; }
+  .jump a:hover { color: var(--ink-1); background: var(--surface-2); }
+  .panel[id] { scroll-margin-top: 80px; }
 
   .panel {
-    position: relative;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 45%, var(--surface-1)), var(--surface-1) 140px);
-    border-radius: 16px; padding: 22px; margin-bottom: 22px;
-    box-shadow: 0 1px 0 color-mix(in srgb, var(--ink-1) 5%, transparent) inset,
-                0 18px 40px -24px rgba(0, 0, 0, .55);
+    background: var(--surface-1); border: 1px solid var(--grid);
+    border-radius: 22px; padding: 26px; margin-bottom: 26px;
+    box-shadow: var(--shadow-lg);
   }
-  .panel .panel { box-shadow: none; border-radius: 12px; }
+  .panel .panel { box-shadow: none; border-radius: 16px; background: var(--surface-2); }
   .panel > h2 {
-    font-size: 18px; text-transform: none; letter-spacing: -0.01em; color: var(--ink-1);
-    font-weight: 700; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
+    font-size: 21px; text-transform: none; letter-spacing: -0.02em; color: var(--ink-1);
+    font-weight: 700; margin: 0 0 18px; display: flex; align-items: center; gap: 12px;
   }
   .panel > h2::before {
-    content: ""; width: 4px; height: 18px; border-radius: 2px;
-    background: linear-gradient(180deg, var(--incident), var(--problem));
+    content: ""; flex: none; width: 10px; height: 10px; border-radius: 3px;
+    background: linear-gradient(135deg, var(--incident), var(--problem));
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--incident) 14%, transparent);
   }
 
   .controls { gap: 12px; }
-  .field label { font-weight: 600; letter-spacing: .06em; }
+  .field label { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
   select, button {
-    border-radius: 9px; padding: 8px 14px; font-weight: 500;
+    font-size: 14px; font-weight: 500; padding: 9px 16px; border-radius: 12px;
+    background: var(--surface-1); color: var(--ink-1); border: 1px solid var(--axis);
+    box-shadow: var(--shadow-sm);
     transition: background .15s, border-color .15s, transform .08s, box-shadow .15s;
   }
-  select:hover, button:hover:not(:disabled) { border-color: var(--ink-3); }
+  select:hover, button:hover:not(:disabled) { border-color: var(--ink-3); background: var(--surface-2); }
   button:active:not(:disabled) { transform: translateY(1px); }
   select:focus-visible, button:focus-visible, input:focus-visible, a:focus-visible {
-    outline: 2px solid var(--incident); outline-offset: 2px;
+    outline: 3px solid color-mix(in srgb, var(--incident) 35%, transparent); outline-offset: 2px;
   }
   button.primary {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--incident) 88%, #fff), var(--incident));
-    box-shadow: 0 6px 18px -8px var(--incident);
+    color: #fff; font-weight: 600; border-color: transparent;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--incident) 82%, #fff), var(--incident));
+    box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 8px 20px -8px var(--incident);
   }
   button.primary:hover:not(:disabled) {
-    box-shadow: 0 8px 22px -6px var(--incident); border-color: var(--incident);
+    background: linear-gradient(180deg, var(--incident), color-mix(in srgb, var(--incident) 85%, #000));
+    box-shadow: 0 10px 24px -8px var(--incident);
   }
+  .seg-btn { box-shadow: none; }
+  .seg-btn.is-on { background: var(--ink-1); border-color: var(--ink-1); color: #fff; }
 
   input[type=range] {
-    -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
-    background: var(--grid); margin: 8px 0;
+    -webkit-appearance: none; appearance: none; width: 150px; height: 6px; border-radius: 999px;
+    background: var(--grid); margin: 9px 0;
   }
   input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
-    background: var(--ink-1); border: 3px solid var(--incident);
-    box-shadow: 0 2px 6px rgba(0,0,0,.4); cursor: pointer;
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; border: 5px solid var(--incident); cursor: pointer;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, .25);
   }
   input[type=range]::-moz-range-thumb {
-    width: 12px; height: 12px; border-radius: 50%;
-    background: var(--ink-1); border: 3px solid var(--incident); cursor: pointer;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #fff; border: 5px solid var(--incident); cursor: pointer;
   }
 
   .kpis { gap: 12px; }
   .kpi {
-    border: 1px solid var(--grid); border-radius: 12px; padding: 14px 16px;
-    background: linear-gradient(180deg, var(--surface-2), color-mix(in srgb, var(--surface-2) 60%, var(--surface-1)));
+    background: var(--surface-2); border: 1px solid transparent;
+    border-radius: 16px; padding: 16px 18px;
   }
+  .kpi .label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: none; color: var(--ink-3); }
   .kpi .value {
-    font-size: 26px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
-    margin: 4px 0 2px;
+    font-family: var(--ui); font-size: 30px; font-weight: 700; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; margin: 4px 0 2px; color: var(--ink-1);
   }
-  .kpi .label { font-weight: 600; letter-spacing: .07em; }
+  .kpi .sub { font-family: var(--ui); font-size: 12px; color: var(--ink-3); }
 
   canvas#stage, canvas#dupStage, canvas#beltStage, canvas#truckStage {
-    border-radius: 12px;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink-1) 3%, transparent) inset,
-                0 12px 32px -20px rgba(0, 0, 0, .7);
+    background: var(--surface-2); border: 1px solid var(--grid); border-radius: 16px;
   }
 
   .note {
-    font-size: 13px; line-height: 1.65; color: var(--ink-2);
-    margin-top: 16px; padding: 14px 16px; border-radius: 12px;
-    background: color-mix(in srgb, var(--surface-0) 55%, transparent);
-    border: 1px solid var(--grid);
+    font-size: 14px; line-height: 1.7; color: var(--ink-2);
+    margin-top: 18px; padding: 18px 20px; border-radius: 16px;
+    background: var(--surface-2); border: 0;
   }
-  .note strong { color: var(--ink-1); }
+  .note strong { color: var(--ink-1); font-weight: 600; }
 
   .status {
-    padding: 8px 12px; border-radius: 9px; border: 1px solid var(--grid);
-    background: color-mix(in srgb, var(--surface-0) 55%, transparent);
+    font-size: 13px; padding: 10px 14px; border-radius: 12px; margin-top: 14px;
+    background: var(--surface-2); border: 1px solid transparent; color: var(--ink-2);
   }
-  .status.err { border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+  .status.err {
+    color: var(--critical);
+    background: color-mix(in srgb, var(--critical) 7%, var(--surface-1));
+    border-color: color-mix(in srgb, var(--critical) 25%, transparent);
+  }
   .status:empty { display: none; }
 
-  .team-col { border-radius: 12px; }
-  .chip { border-radius: 6px; transition: transform .12s; }
-  .chip:hover { transform: translateY(-1px); }
-  table tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+  .inbox { background: var(--surface-2); border: 1.5px dashed var(--axis); border-radius: 16px; padding: 10px; }
+  .team-col { background: var(--surface-2); border: 1px solid var(--grid); border-radius: 16px; padding: 10px; }
+  .chip {
+    background: var(--surface-1); border-radius: 8px; box-shadow: var(--shadow-sm);
+    transition: transform .12s, box-shadow .12s;
+  }
+  .chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .proof { background: var(--surface-2); border: 0; border-radius: 14px; }
+
+  table { font-size: 13px; }
+  th { font-weight: 600; letter-spacing: .04em; text-transform: none; font-size: 11px; }
+  table tbody tr:hover td { background: var(--surface-2); }
 
   #tooltip {
-    border-radius: 10px !important;
-    box-shadow: 0 12px 30px -10px rgba(0,0,0,.6);
+    background: var(--ink-1); color: #fff; border: 0; border-radius: 10px;
+    font-family: var(--ui); font-size: 12px; padding: 9px 12px;
+    box-shadow: 0 12px 30px -10px rgba(15, 23, 42, .45);
   }
+  #tooltip strong { color: #fff; }
 
+  @media (max-width: 640px) {
+    .wrap { padding: 28px 14px 64px; }
+    .panel { padding: 18px; border-radius: 18px; }
+    .jump { display: flex; border-radius: 16px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
