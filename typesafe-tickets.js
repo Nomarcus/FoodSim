@@ -821,12 +821,133 @@
     }
   };
 
+
+  /*
+   * Parcels for the conveyor experiment.
+   *
+   * Twenty bins, and a delivery note that never names its own bin: nothing here
+   * says "toner" or "chair". The category has to be worked out from what the
+   * note describes, which is the whole point - a keyword rule has nothing to
+   * match on, and "a 14-inch notebook computer" has to land in laptops rather
+   * than notebooks.
+   *
+   * `gold` is the hand-written answer key. It is used to colour the bins after
+   * the fact and is never sent with the parcel.
+   */
+  var PARCEL_BINS = [
+    { key: 'paper',      name: 'Paper',        criteria: 'Blank paper and pads - reams, flip-chart pads, till rolls, card stock.' },
+    { key: 'toner',      name: 'Toner & ink',  criteria: 'Printer and copier consumables - toner, ink, drums, waste containers.' },
+    { key: 'writing',    name: 'Pens',         criteria: 'Handheld writing and marking - pens, pencils, markers, highlighters.' },
+    { key: 'notebooks',  name: 'Notebooks',    criteria: 'Bound paper to write in - notebooks, pads, diaries, planners. Not computers.' },
+    { key: 'envelopes',  name: 'Post',         criteria: 'Things used to send post - envelopes, mailers, document sleeves, postage labels.' },
+    { key: 'batteries',  name: 'Batteries',    criteria: 'Cells and battery packs of any size, and chargers for them.' },
+    { key: 'cables',     name: 'Cables',       criteria: 'Leads, adapters and plugs that connect or power something else.' },
+    { key: 'keyboards',  name: 'Keyboards',    criteria: 'Keyboards and number pads.' },
+    { key: 'mice',       name: 'Mice',         criteria: 'Pointing devices - mice, trackballs, vertical pointers, and wrist rests for them.' },
+    { key: 'monitors',   name: 'Monitors',     criteria: 'Standalone screens and the arms or stands that hold them.' },
+    { key: 'laptops',    name: 'Laptops',      criteria: 'Portable computers and docks. A "notebook computer" belongs here, not with notebooks.' },
+    { key: 'phones',     name: 'Phones',       criteria: 'Telephones - mobile handsets, desk phones, SIMs and cases for them.' },
+    { key: 'headsets',   name: 'Headsets',     criteria: 'Anything worn or placed to listen and speak - headphones, earbuds, speakerphones.' },
+    { key: 'chairs',     name: 'Chairs',       criteria: 'Seating and its spare parts - task chairs, stools, gas lifts, armrests.' },
+    { key: 'desks',      name: 'Desks',        criteria: 'Desks, worktops, frames and the trays fixed to them.' },
+    { key: 'lamps',      name: 'Lighting',     criteria: 'Lighting - lamps, bulbs, tubes, uplighters.' },
+    { key: 'cleaning',   name: 'Cleaning',     criteria: 'Cleaning materials and equipment, including sanitiser and blue roll.' },
+    { key: 'coffee',     name: 'Coffee & tea', criteria: 'Hot drinks and what the machines need - beans, capsules, tea, milk, descaler, filters.' },
+    { key: 'snacks',     name: 'Snacks',       criteria: 'Food to eat as it is - bars, nuts, crisps, biscuits, cereal.' },
+    { key: 'firstaid',   name: 'First aid',    criteria: 'Medical supplies - dressings, eyewash, burn gel, defibrillator pads.' }
+  ];
+
+  var PARCELS = [
+    { gold: 'paper', text: 'Five reams, 80 gsm, A4, still shrink-wrapped.' },
+    { gold: 'paper', text: 'A flat box of perforated pads for the flip chart stand.' },
+    { gold: 'paper', text: 'Two boxes of thermal rolls for the reception till.' },
+    { gold: 'paper', text: 'Heavyweight cream stock for printing the certificates.' },
+    { gold: 'toner', text: 'A sealed cartridge for the fourth-floor colour copier.' },
+    { gold: 'toner', text: 'Waste container and a drum unit for the big Ricoh.' },
+    { gold: 'toner', text: 'Black refill, high yield, for the HP on 2B.' },
+    { gold: 'toner', text: 'A twin pack of tanks for the wide-format plotter.' },
+    { gold: 'writing', text: 'A gross of black ballpoints, fine tip.' },
+    { gold: 'writing', text: 'Four packs of dry-wipe markers for the whiteboards.' },
+    { gold: 'writing', text: 'Mechanical pencils and a tub of 0.5 leads.' },
+    { gold: 'writing', text: 'Highlighters in five colours, boxed.' },
+    { gold: 'notebooks', text: 'Twenty A5 hardbacks, squared, for the new starters.' },
+    { gold: 'notebooks', text: 'Week-to-view planners for next year.' },
+    { gold: 'notebooks', text: 'Spiral bound pads, perforated, lined.' },
+    { gold: 'notebooks', text: 'A box of leather-bound journals for the board.' },
+    { gold: 'envelopes', text: 'A thousand C5 self-seal with a window.' },
+    { gold: 'envelopes', text: 'Padded bubble mailers, size 4.' },
+    { gold: 'envelopes', text: 'Cardboard document sleeves, A4, do not bend.' },
+    { gold: 'envelopes', text: 'Rolls of labels for the franking machine.' },
+    { gold: 'batteries', text: 'Bulk pack of AA alkaline for the wireless pointers.' },
+    { gold: 'batteries', text: 'Button cells for the door access fobs.' },
+    { gold: 'batteries', text: 'Rechargeable AAA cells and their charging dock.' },
+    { gold: 'batteries', text: 'A spare 9V pack for the smoke alarms.' },
+    { gold: 'cables', text: 'Two-metre USB-C to USB-C, braided.' },
+    { gold: 'cables', text: 'HDMI leads for the meeting rooms.' },
+    { gold: 'cables', text: 'A box of Cat6 patch leads, various lengths.' },
+    { gold: 'cables', text: 'Travel adapters, UK to EU, ten of them.' },
+    { gold: 'keyboards', text: 'Wireless, Nordic layout, low profile.' },
+    { gold: 'keyboards', text: 'Two mechanical boards with brown switches.' },
+    { gold: 'keyboards', text: 'A split ergonomic board for the fourth desk.' },
+    { gold: 'keyboards', text: 'Numeric pads for the finance team.' },
+    { gold: 'mice', text: 'Wireless optical, five of them, black.' },
+    { gold: 'mice', text: 'A vertical ergonomic pointer for the support desk.' },
+    { gold: 'mice', text: 'A trackball for the design bench.' },
+    { gold: 'mice', text: 'Gel wrist rests and two pointing devices.' },
+    { gold: 'monitors', text: 'A 27-inch panel, boxed, screen film still on.' },
+    { gold: 'monitors', text: 'Two ultrawide panels for the trading desk.' },
+    { gold: 'monitors', text: 'Mounting arms and a 24-inch display.' },
+    { gold: 'monitors', text: 'A portable 15-inch second screen for travel.' },
+    { gold: 'laptops', text: 'A 14-inch notebook computer, sealed, with its charger.' },
+    { gold: 'laptops', text: 'Three refurbished machines for the interns.' },
+    { gold: 'laptops', text: 'A docking station and the portable it pairs with.' },
+    { gold: 'laptops', text: 'Slim aluminium ultrabook, 16 GB, in retail packaging.' },
+    { gold: 'phones', text: 'Two handsets and a pair of SIM trays.' },
+    { gold: 'phones', text: 'A rugged mobile for the warehouse staff.' },
+    { gold: 'phones', text: 'DECT desk sets for reception.' },
+    { gold: 'phones', text: 'Screen protectors and a mid-range handset.' },
+    { gold: 'headsets', text: 'USB headphones with a boom mic, ten of them.' },
+    { gold: 'headsets', text: 'Noise-cancelling over-ears for the open plan.' },
+    { gold: 'headsets', text: 'A conference speakerphone for the small room.' },
+    { gold: 'headsets', text: 'Wireless earbuds with a charging case.' },
+    { gold: 'chairs', text: 'A task seat, mesh back, on castors, flat-packed.' },
+    { gold: 'chairs', text: 'Four stools for the standing benches.' },
+    { gold: 'chairs', text: 'Visitor seating, stackable, six of them.' },
+    { gold: 'chairs', text: 'A replacement gas lift and a pair of armrests.' },
+    { gold: 'desks', text: 'A sit-stand frame, motorised, in two boxes.' },
+    { gold: 'desks', text: 'Worktops, oak veneer, 160 by 80.' },
+    { gold: 'desks', text: 'Cable trays and the bench workstation they bolt to.' },
+    { gold: 'desks', text: 'A corner unit for office 3B.' },
+    { gold: 'lamps', text: 'A task light with a clamp base.' },
+    { gold: 'lamps', text: 'LED tubes for the ceiling fittings.' },
+    { gold: 'lamps', text: 'Two floor uplighters for the lounge.' },
+    { gold: 'lamps', text: 'Daylight bulbs, warm white, box of twelve.' },
+    { gold: 'cleaning', text: 'Surface spray and a case of blue roll.' },
+    { gold: 'cleaning', text: 'Mop heads and a bucket with a wringer.' },
+    { gold: 'cleaning', text: 'Bags for the upright in the cupboard.' },
+    { gold: 'cleaning', text: 'Hand sanitiser, five litres, refill.' },
+    { gold: 'coffee', text: 'A kilo of beans, dark roast, for the grinder.' },
+    { gold: 'coffee', text: 'Descaler and filters for the machine on 3.' },
+    { gold: 'coffee', text: 'Assorted teas and a box of oat drink.' },
+    { gold: 'coffee', text: 'Capsules, two hundred, for the small machine.' },
+    { gold: 'snacks', text: 'Fruit bars and mixed nuts for the kitchen.' },
+    { gold: 'snacks', text: 'Crisps in multipacks for the Friday session.' },
+    { gold: 'snacks', text: 'Biscuits, assorted, two tins.' },
+    { gold: 'snacks', text: 'Cereal and instant porridge pots.' },
+    { gold: 'firstaid', text: 'A cabinet restock: plasters, tape and gauze.' },
+    { gold: 'firstaid', text: 'An eyewash station refill.' },
+    { gold: 'firstaid', text: 'Burn gel and a foil blanket.' },
+    { gold: 'firstaid', text: 'Defibrillator pads, in date until next year.' }
+  ];
+
   global.TypeSafeTickets = {
     TicketLabeler: TicketLabeler,
     classifyKeyword: classifyKeyword,
     CORPUS: CORPUS,
     DUPLICATES: DUPLICATES,
     SUPPLY_TICKETS: SUPPLY_TICKETS,
+    PARCEL_BINS: PARCEL_BINS,
+    PARCELS: PARCELS,
     TEAMS: TEAMS,
     PRODUCTS: PRODUCTS,
     CRITERIA: CRITERIA,

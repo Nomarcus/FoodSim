@@ -186,6 +186,10 @@
     display: block; width: 100%; height: min(70vh, 640px); margin-top: 12px;
     background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
   }
+  canvas#beltStage {
+    display: block; width: 100%; height: 390px; margin-top: 12px;
+    background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
+  }
 
   svg { display: block; width: 100%; overflow: visible; }
   .grid-line { stroke: var(--grid); stroke-width: 1; }
@@ -467,6 +471,67 @@
       stops at 36: beyond it, comparing everything to everything is the wrong shape
       for the problem, and real deduplication compares against one representative
       per group instead.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>The belt — twenty bins, and only so many hands</h2>
+    <div class="controls">
+      <button class="primary" id="beltToggle">Start the belt</button>
+      <button id="beltReset">Empty it</button>
+      <div class="field">
+        <label for="beltAgents">Sorters <span id="beltAgentsVal" class="mono">6</span></label>
+        <input type="range" id="beltAgents" min="1" max="14" value="6" step="1">
+      </div>
+      <div class="field">
+        <label for="beltRate">Parcels per second <span id="beltRateVal" class="mono">2.0</span></label>
+        <input type="range" id="beltRate" min="2" max="100" value="20" step="1">
+      </div>
+    </div>
+
+    <canvas id="beltStage" aria-label="Parcels moving along a conveyor past sorters, into twenty bins"></canvas>
+
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="label">Into a bin</div><div class="value" id="beSorted">0</div><div class="sub" id="beSortedSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Off the end</div><div class="value" id="beMissed">0</div><div class="sub">nobody was free</div></div>
+      <div class="kpi"><div class="label">Right bin</div><div class="value" id="beAcc">—</div><div class="sub" id="beAccSub">against the answer key</div></div>
+      <div class="kpi"><div class="label">Decision</div><div class="value" id="beLat">—</div><div class="sub">round trip, per parcel</div></div>
+      <div class="kpi"><div class="label">Cleared / s</div><div class="value" id="beTput">0.0</div><div class="sub">last 5 seconds</div></div>
+      <div class="kpi"><div class="label">Sorters busy</div><div class="value" id="beBusy">0</div><div class="sub" id="beBusySub">&nbsp;</div></div>
+    </div>
+
+    <div class="status" id="beltStatus">Press start. Turn the rate up until parcels begin running off the end.</div>
+
+    <div class="panel" id="beltBinPanel" style="display:none; margin-top:12px; background:var(--surface-2)">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px">
+        <h2 id="beltBinTitle" style="margin:0">Bin</h2>
+        <button id="beltBinClose" style="padding:4px 10px">Close</button>
+      </div>
+      <div class="scroll" style="max-height:260px; margin-top:8px">
+        <table><thead><tr><th style="width:120px">Against the key</th><th>Delivery note</th></tr></thead>
+          <tbody id="beltBinRows"></tbody></table>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>What is being decided.</strong> Every parcel carries a delivery note
+      that never names its own bin — no note says "toner" or "chair". A sorter that
+      picks one up sends the note as a single <strong>choice</strong> over twenty
+      bins, and puts the parcel where the answer says. Parcels picked up within the
+      same breath are gathered into one request — one question each, answered in
+      parallel, so a busy line costs fewer round trips than it has parcels. A keyword rule has nothing to match on here, and
+      "a 14-inch notebook computer" has to land in laptops rather than notebooks.
+      <br><br>
+      <strong>Where the break point is.</strong> A sorter is busy for one round trip
+      plus the walk to the bin, so a line of <em>n</em> sorters clears roughly
+      <em>n ÷ that</em> parcels a second. Push the arrival rate past it and parcels
+      start passing everybody and falling off the end — the counter says how many.
+      That ratio, not the belt, is what decides how many people the line needs.
+      <br><br>
+      <strong>Bins are neutral on purpose.</strong> Twenty distinguishable colours do
+      not exist, so a parcel is marked green or red for whether it landed in the bin
+      its answer key names — never for which bin it is. Click any bin to read what
+      went into it.
     </div>
   </div>
   <div class="panel">
@@ -2198,6 +2263,427 @@ addEventListener('resize', () => { if (lastRun) { drawLatency(lastRun); drawConf
 
 // The baseline is free, so it is always on screen to compare against.
 runBaseline();
+
+/* --- the belt ---------------------------------------------------------
+ *
+ * A conveyor of parcels, a line of sorters, and twenty bins. Each parcel
+ * carries a delivery note that never names its own bin, so where it goes is a
+ * judgment: one `choice` over twenty options per parcel.
+ *
+ * The experiment is the queue, not the accuracy. A sorter is occupied for one
+ * round trip plus the walk to the bin, so a line of n sorters clears about
+ * n / that many parcels a second. Above that, parcels pass everybody and run
+ * off the end - which is the number worth showing an audience.
+ */
+const BINS = TypeSafeTickets.PARCEL_BINS;
+const PARCELS = TypeSafeTickets.PARCELS;
+const BIN_CRITERIA = {};
+BINS.forEach(b => { BIN_CRITERIA[b.key] = b.criteria; });
+
+const BELT_SPEED = 260;      // px per second along the belt
+const PICK_MS = 200;         // parcel to the sorter's hands
+const DROP_MS = 420;         // sorter's hands to the bin
+const PARCEL_W = 20, PARCEL_H = 16;
+const MAX_IN_FLIGHT = 8;
+// Parcels picked up within the same breath go in one request. Without a short
+// window to gather them, every sorter sends alone and the batch is always one.
+const COALESCE_MS = 90;
+const BELT_BATCH = 16;       // parcels per request, under the proxy's cap
+
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const beltStage = $('beltStage');
+const bctx = beltStage.getContext('2d');
+
+const belt = {
+  running: false, parcels: [], agents: [], queue: [], inFlight: 0,
+  bins: {}, sorted: 0, missed: 0, correct: 0, latencies: [], landings: [],
+  misses: [], seq: 0, last: 0, spawnDebt: 0, error: null
+};
+BINS.forEach(b => { belt.bins[b.key] = []; });
+
+function beltSize() {
+  const ratio = devicePixelRatio || 1;
+  const w = beltStage.clientWidth, h = beltStage.clientHeight;
+  if (beltStage.width !== w * ratio || beltStage.height !== h * ratio) {
+    beltStage.width = w * ratio; beltStage.height = h * ratio;
+    bctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+  return { w, h };
+}
+
+function beltRate() { return parseInt($('beltRate').value, 10) / 10; }
+
+function beltLayout() {
+  const { w, h } = beltSize();
+  const beltTop = 34, beltH = 46;
+  const lane = { top: beltTop, h: beltH, mid: beltTop + beltH / 2, w, hgt: h };
+
+  const n = parseInt($('beltAgents').value, 10);
+  if (belt.agents.length !== n) {
+    belt.agents = Array.from({ length: n }, () => ({ parcel: null }));
+  }
+  const margin = 60, span = w - margin * 2;
+  belt.agents.forEach((a, i) => {
+    a.x = margin + (span * (i + 0.5)) / n;
+    a.y = beltTop + beltH + 54;
+  });
+
+  // Twenty bins in two rows of ten, under the sorters.
+  const cols = 10, gap = 6, pad = 14;
+  const bw = (w - pad * 2 - gap * (cols - 1)) / cols, bh = 62;
+  const rowTop = Math.min(h - bh * 2 - gap - 8, beltTop + beltH + 134);
+  belt.boxes = BINS.map((b, i) => ({
+    key: b.key, name: b.name,
+    x: pad + (i % cols) * (bw + gap),
+    y: rowTop + Math.floor(i / cols) * (bh + gap),
+    w: bw, h: bh
+  }));
+  return lane;
+}
+
+function beltSpawn(lane) {
+  belt.parcels.push({
+    id: ++belt.seq, ...PARCELS[Math.floor(Math.random() * PARCELS.length)],
+    x: -PARCEL_W, y: lane.mid, state: 'belt', t: 0, from: null, agent: null,
+    predicted: null, correct: null
+  });
+}
+
+async function beltSend(items, attempt) {
+  attempt = attempt || 0;
+  const state = { parcels: items.map((p, i) => ({ index: i, delivery_note: p.text })) };
+  const questions = {};
+  items.forEach((_, i) => {
+    questions['bin_' + i] = {
+      type: 'choice',
+      instructions: 'A parcel has arrived with the delivery note in ' +
+        '`parcels[' + i + '].delivery_note`. Which bin does it belong in?',
+      criteria: BIN_CRITERIA
+    };
+  });
+
+  const started = performance.now();
+  const res = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ state, questions })
+  });
+  const text = await res.text();
+
+  if (!res.ok) {
+    const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+    if (retryable && attempt < 3) {
+      const wait = 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25);
+      await new Promise(r => setTimeout(r, wait));
+      return beltSend(items, attempt + 1);
+    }
+    throw new Error('HTTP ' + res.status);
+  }
+
+  const latency = performance.now() - started;
+  const answers = (JSON.parse(text).answers) || {};
+  belt.latencies.push(latency);
+  if (belt.latencies.length > 40) belt.latencies.shift();
+
+  items.forEach((p, i) => {
+    const ans = answers['bin_' + i];
+    const key = ans && belt.bins[ans.choice] ? ans.choice : null;
+    // No usable answer is not a silent shrug: the parcel goes nowhere and the
+    // sorter is freed, so the counters stay honest about what was sorted.
+    if (!key) { p.state = 'lost'; if (p.agent) p.agent.parcel = null; return; }
+    p.predicted = key;
+    p.correct = key === p.gold;
+    p.state = 'toBin';
+    p.t = 0;
+    p.from = { x: p.x, y: p.y };
+  });
+}
+
+function beltDispatch() {
+  const now = performance.now();
+  while (belt.queue.length && belt.inFlight < MAX_IN_FLIGHT) {
+    const ripe = belt.queue.length >= BELT_BATCH ||
+                 now - belt.queue[0].queuedAt >= COALESCE_MS;
+    if (!ripe) break;
+    const items = belt.queue.splice(0, BELT_BATCH);
+    belt.inFlight++;
+    beltSend(items)
+      .catch(err => {
+        items.forEach(p => { p.state = 'lost'; if (p.agent) p.agent.parcel = null; });
+        belt.running = false;
+        belt.error = err.message;
+        $('beltToggle').textContent = 'Start the belt';
+      })
+      .finally(() => { belt.inFlight--; });
+  }
+}
+
+function beltStep(dt, lane) {
+  if (belt.running) {
+    belt.spawnDebt += beltRate() * dt;
+    while (belt.spawnDebt >= 1) { belt.spawnDebt -= 1; beltSpawn(lane); }
+  }
+
+  const now = performance.now();
+  const free = belt.agents.filter(a => !a.parcel);
+
+  belt.parcels.forEach(p => {
+    if (p.state === 'belt') {
+      const was = p.x;
+      p.x += BELT_SPEED * dt;
+      // The first sorter it passes who has their hands free takes it. Everyone
+      // else is mid-decision or mid-walk, so the parcel simply carries on.
+      // Testing for a crossing rather than a window: a window narrower than one
+      // frame of travel silently stops catching anything as the belt speeds up.
+      const taker = free.find(a => !a.parcel && was < a.x && p.x >= a.x);
+      if (taker) {
+        taker.parcel = p;
+        p.agent = taker; p.state = 'toAgent'; p.t = 0;
+        p.from = { x: p.x, y: p.y };
+        p.queuedAt = now;
+        belt.queue.push(p);
+      } else if (p.x > lane.w + PARCEL_W) {
+        p.state = 'gone';
+        belt.missed++; belt.misses.push(now);
+      }
+    } else if (p.state === 'toAgent') {
+      p.t += dt * 1000;
+      const k = Math.min(1, p.t / PICK_MS);
+      p.x = p.from.x + (p.agent.x - p.from.x) * k;
+      p.y = p.from.y + (p.agent.y - p.from.y) * k;
+      if (k === 1) p.state = 'deciding';
+    } else if (p.state === 'toBin') {
+      const box = belt.boxes.find(b => b.key === p.predicted);
+      p.t += dt * 1000;
+      const k = Math.min(1, p.t / DROP_MS);
+      p.x = p.from.x + (box.x + box.w / 2 - p.from.x) * k;
+      p.y = p.from.y + (box.y + box.h / 2 - p.from.y) * k;
+      if (k === 1) {
+        p.state = 'landed';
+        if (p.agent) p.agent.parcel = null;
+        belt.bins[p.predicted].push(p);
+        belt.sorted++;
+        if (p.correct) belt.correct++;
+        belt.landings.push(now);
+      }
+    } else if (p.state === 'deciding' && p.agent) {
+      p.x = p.agent.x; p.y = p.agent.y;
+    }
+  });
+
+  belt.parcels = belt.parcels.filter(p => p.state !== 'gone' && p.state !== 'landed' && p.state !== 'lost');
+  beltDispatch();
+
+  const cut5 = now - 5000, cut10 = now - 10000;
+  while (belt.landings.length && belt.landings[0] < cut5) belt.landings.shift();
+  while (belt.misses.length && belt.misses[0] < cut10) belt.misses.shift();
+}
+
+function beltDraw(lane) {
+  const { w, hgt: h } = lane;
+  bctx.clearRect(0, 0, w, h);
+
+  // the belt itself
+  bctx.fillStyle = cssVar('--surface-2');
+  bctx.fillRect(0, lane.top, w, lane.h);
+  bctx.strokeStyle = cssVar('--axis'); bctx.lineWidth = 1;
+  bctx.strokeRect(0.5, lane.top + 0.5, w - 1, lane.h - 1);
+  bctx.strokeStyle = cssVar('--grid');
+  const phase = (performance.now() / 1000 * BELT_SPEED) % 22;
+  for (let x = -22 + phase; x < w; x += 22) {
+    bctx.beginPath(); bctx.moveTo(x, lane.top + 4); bctx.lineTo(x, lane.top + lane.h - 4); bctx.stroke();
+  }
+  bctx.fillStyle = cssVar('--ink-3');
+  bctx.font = '10px ' + cssVar('--mono');
+  bctx.textAlign = 'left';
+  bctx.fillText('IN', 6, lane.top - 8);
+  bctx.textAlign = 'right';
+  bctx.fillText('OFF THE END →', w - 6, lane.top - 8);
+
+  // sorters
+  belt.agents.forEach(a => {
+    const busy = !!a.parcel;
+    const deciding = busy && a.parcel.state === 'deciding';
+    bctx.beginPath();
+    bctx.arc(a.x, a.y, 13, 0, Math.PI * 2);
+    bctx.fillStyle = busy ? cssVar('--surface-2') : cssVar('--incident');
+    bctx.fill();
+    bctx.lineWidth = 2;
+    bctx.strokeStyle = deciding ? cssVar('--warning') : (busy ? cssVar('--axis') : cssVar('--incident'));
+    bctx.stroke();
+    if (deciding) {
+      bctx.globalAlpha = 0.35 + 0.35 * Math.sin(performance.now() / 150);
+      bctx.beginPath(); bctx.arc(a.x, a.y, 19, 0, Math.PI * 2);
+      bctx.strokeStyle = cssVar('--warning'); bctx.stroke();
+      bctx.globalAlpha = 1;
+    }
+    bctx.strokeStyle = cssVar('--axis');
+    bctx.lineWidth = 1;
+    bctx.beginPath(); bctx.moveTo(a.x, lane.top + lane.h); bctx.lineTo(a.x, a.y - 13); bctx.stroke();
+  });
+
+  // bins
+  bctx.textAlign = 'center';
+  belt.boxes.forEach(box => {
+    const list = belt.bins[box.key];
+    bctx.fillStyle = cssVar('--surface-1');
+    bctx.strokeStyle = cssVar('--axis'); bctx.lineWidth = 1;
+    bctx.beginPath();
+    bctx.roundRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1, 6);
+    bctx.fill(); bctx.stroke();
+
+    bctx.fillStyle = cssVar('--ink-2');
+    bctx.font = '600 10px ' + cssVar('--ui');
+    bctx.fillText(box.name, box.x + box.w / 2, box.y + 14, box.w - 8);
+    bctx.fillStyle = cssVar('--ink-1');
+    bctx.font = '700 15px ' + cssVar('--mono');
+    bctx.fillText(String(list.length), box.x + box.w / 2, box.y + 33);
+
+    // One tick per parcel that landed here, green or red against the key.
+    const dots = list.slice(-14);
+    dots.forEach((p, i) => {
+      bctx.fillStyle = p.correct ? cssVar('--good') : cssVar('--critical');
+      bctx.fillRect(box.x + 7 + (i % 7) * 7, box.y + 42 + Math.floor(i / 7) * 7, 5, 5);
+    });
+  });
+
+  // parcels
+  belt.parcels.forEach(p => {
+    bctx.fillStyle = cssVar('--request');
+    bctx.strokeStyle = cssVar('--surface-0'); bctx.lineWidth = 1;
+    bctx.beginPath();
+    bctx.roundRect(p.x - PARCEL_W / 2, p.y - PARCEL_H / 2, PARCEL_W, PARCEL_H, 3);
+    bctx.fill(); bctx.stroke();
+    bctx.strokeStyle = 'rgba(255,255,255,.45)';
+    bctx.beginPath();
+    bctx.moveTo(p.x, p.y - PARCEL_H / 2); bctx.lineTo(p.x, p.y + PARCEL_H / 2); bctx.stroke();
+  });
+}
+
+function beltStats() {
+  $('beSorted').textContent = belt.sorted;
+  const offered = belt.sorted + belt.missed;
+  $('beSortedSub').textContent = offered ? offered + ' arrived' : ' ';
+  $('beMissed').textContent = belt.missed;
+  $('beAcc').textContent = belt.sorted
+    ? Math.round((belt.correct / belt.sorted) * 100) + '%' : '—';
+  $('beAccSub').textContent = belt.sorted
+    ? belt.correct + ' of ' + belt.sorted + ' against the answer key' : 'against the answer key';
+  const avg = belt.latencies.length
+    ? belt.latencies.reduce((a, b) => a + b, 0) / belt.latencies.length : 0;
+  $('beLat').textContent = avg ? Math.round(avg) + ' ms' : '—';
+  $('beTput').textContent = (belt.landings.length / 5).toFixed(1);
+  const busy = belt.agents.filter(a => a.parcel).length;
+  $('beBusy').textContent = busy;
+  $('beBusySub').textContent = 'of ' + belt.agents.length;
+
+  if (belt.error) {
+    setBeltStatus('The belt stopped: ' + belt.error + '. This page needs the api/typesafe proxy.', true);
+    return;
+  }
+  if (!belt.running) return;
+
+  // A sorter is occupied for a round trip plus the walk, so the line clears
+  // about that many a second. Stated as an estimate, because it is one.
+  const service = (avg || 0) + DROP_MS + PICK_MS;
+  const capacity = avg ? (belt.agents.length / service) * 1000 : null;
+  const cap = capacity ? capacity.toFixed(1) : '?';
+  if (belt.misses.length) {
+    setBeltStatus('Over the line — ' + belt.misses.length + ' parcels ran off the end in the ' +
+      'last 10 s. ' + belt.agents.length + ' sorters clear about ' + cap + ' a second at ' +
+      Math.round(avg) + ' ms a decision; the belt is feeding ' + beltRate().toFixed(1) + '.', true);
+  } else {
+    setBeltStatus('Keeping up at ' + beltRate().toFixed(1) + ' a second. ' + belt.agents.length +
+      ' sorters clear about ' + cap + ' — raise the rate until parcels start falling off.');
+  }
+}
+
+function setBeltStatus(msg, err) {
+  const el = $('beltStatus');
+  el.textContent = msg;
+  el.classList.toggle('err', !!err);
+}
+
+function beltFrame(ts) {
+  const dt = Math.min(0.05, (ts - belt.last) / 1000 || 0);
+  belt.last = ts;
+  const lane = beltLayout();
+  beltStep(dt, lane);
+  beltDraw(lane);
+  beltStats();
+  requestAnimationFrame(beltFrame);
+}
+
+function beltClear() {
+  belt.parcels = []; belt.queue = [];
+  belt.agents.forEach(a => { a.parcel = null; });
+  BINS.forEach(b => { belt.bins[b.key] = []; });
+  belt.sorted = belt.missed = belt.correct = 0;
+  belt.latencies = []; belt.landings = []; belt.misses = [];
+  belt.spawnDebt = 0; belt.error = null;
+  $('beltBinPanel').style.display = 'none';
+}
+
+$('beltToggle').addEventListener('click', () => {
+  belt.error = null;
+  belt.running = !belt.running;
+  $('beltToggle').textContent = belt.running ? 'Stop the belt' : 'Start the belt';
+  if (belt.running) setBeltStatus('Running.');
+  else setBeltStatus('Stopped.');
+});
+$('beltReset').addEventListener('click', () => {
+  belt.running = false;
+  $('beltToggle').textContent = 'Start the belt';
+  beltClear();
+  setBeltStatus('Emptied. Press start.');
+});
+$('beltAgents').addEventListener('input', () => {
+  $('beltAgentsVal').textContent = $('beltAgents').value;
+});
+$('beltRate').addEventListener('input', () => {
+  $('beltRateVal').textContent = beltRate().toFixed(1);
+});
+
+function beltHit(evt) {
+  const r = beltStage.getBoundingClientRect();
+  const x = evt.clientX - r.left, y = evt.clientY - r.top;
+  const box = (belt.boxes || []).find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  const parcel = belt.parcels.find(p => Math.abs(p.x - x) < PARCEL_W && Math.abs(p.y - y) < PARCEL_H);
+  return { box, parcel, x, y };
+}
+
+beltStage.addEventListener('mousemove', evt => {
+  const { box, parcel } = beltHit(evt);
+  if (parcel) {
+    beltStage.style.cursor = 'default';
+    showTip(evt, escapeHtml(parcel.text));
+  } else if (box) {
+    beltStage.style.cursor = 'pointer';
+    showTip(evt, '<strong>' + escapeHtml(box.name) + '</strong><br>' +
+      belt.bins[box.key].length + ' parcels — click to read them');
+  } else { beltStage.style.cursor = 'default'; hideTip(); }
+});
+beltStage.addEventListener('mouseleave', hideTip);
+
+beltStage.addEventListener('click', evt => {
+  const { box } = beltHit(evt);
+  if (!box) return;
+  const list = belt.bins[box.key];
+  $('beltBinTitle').textContent = box.name + ' — ' + list.length +
+    (list.length === 1 ? ' parcel' : ' parcels');
+  $('beltBinRows').innerHTML = list.length
+    ? list.slice().reverse().map(p =>
+        '<td class="mono" style="color:' + (p.correct ? 'var(--good)' : 'var(--critical)') + '">' +
+        (p.correct ? 'right' : 'should be ' + p.gold) + '</td><td>' + escapeHtml(p.text) + '</td>')
+        .map(r => '<tr>' + r + '</tr>').join('')
+    : '<tr><td colspan="2" style="color:var(--ink-3)">Nothing in this bin yet.</td></tr>';
+  $('beltBinPanel').style.display = 'block';
+});
+$('beltBinClose').addEventListener('click', () => { $('beltBinPanel').style.display = 'none'; });
+
+$('beltRateVal').textContent = beltRate().toFixed(1);
+requestAnimationFrame(beltFrame);
 
 fetch(PROXY, { headers: { Accept: 'application/json' } })
   .then(r => r.ok ? r.json() : Promise.reject())
