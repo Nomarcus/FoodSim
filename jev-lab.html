@@ -187,7 +187,7 @@
     background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
   }
   canvas#beltStage {
-    display: block; width: 100%; height: 390px; margin-top: 12px;
+    display: block; width: 100%; height: 404px; margin-top: 12px;
     background: var(--surface-0); border-radius: 8px; border: 1px solid var(--grid);
   }
 
@@ -481,11 +481,11 @@
       <button id="beltReset">Empty it</button>
       <div class="field">
         <label for="beltAgents">Sorters <span id="beltAgentsVal" class="mono">6</span></label>
-        <input type="range" id="beltAgents" min="1" max="14" value="6" step="1">
+        <input type="range" id="beltAgents" min="1" max="40" value="6" step="1">
       </div>
       <div class="field">
         <label for="beltRate">Parcels per second <span id="beltRateVal" class="mono">2.0</span></label>
-        <input type="range" id="beltRate" min="2" max="100" value="20" step="1">
+        <input type="range" id="beltRate" min="2" max="300" value="20" step="1">
       </div>
     </div>
 
@@ -519,7 +519,9 @@
       picks one up sends the note as a single <strong>choice</strong> over twenty
       bins, and puts the parcel where the answer says. Parcels picked up within the
       same breath are gathered into one request — one question each, answered in
-      parallel, so a busy line costs fewer round trips than it has parcels. A keyword rule has nothing to match on here, and
+      parallel, so a busy line costs fewer round trips than it has parcels. A
+      sorter is a filled circle while their hands are free, hollow while they are
+      busy, and ringed yellow while they wait for the answer. A keyword rule has nothing to match on here, and
       "a 14-inch notebook computer" has to land in laptops rather than notebooks.
       <br><br>
       <strong>Where the break point is.</strong> A sorter is busy for one round trip
@@ -2280,11 +2282,14 @@ const PARCELS = TypeSafeTickets.PARCELS;
 const BIN_CRITERIA = {};
 BINS.forEach(b => { BIN_CRITERIA[b.key] = b.criteria; });
 
-const BELT_SPEED = 260;      // px per second along the belt
+// Fast enough that even the top arrival rate leaves a gap between parcels: at
+// 30 a second they are born 25 px apart, which is wider than a parcel. Slower
+// than this and a flooded belt draws as one solid bar.
+const BELT_SPEED = 760;      // px per second along the belt
 const PICK_MS = 200;         // parcel to the sorter's hands
 const DROP_MS = 420;         // sorter's hands to the bin
 const PARCEL_W = 20, PARCEL_H = 16;
-const MAX_IN_FLIGHT = 8;
+const MAX_IN_FLIGHT = 12;
 // Parcels picked up within the same breath go in one request. Without a short
 // window to gather them, every sorter sends alone and the batch is always one.
 const COALESCE_MS = 90;
@@ -2323,16 +2328,21 @@ function beltLayout() {
   if (belt.agents.length !== n) {
     belt.agents = Array.from({ length: n }, () => ({ parcel: null }));
   }
-  const margin = 60, span = w - margin * 2;
+  // A long line has to stay readable: the sorters shrink as they are added, and
+  // past sixteen they stand in two staggered rows so they stop overlapping.
+  const margin = 40, span = w - margin * 2;
+  const pitch = span / n;
+  const rows = n > 16 ? 2 : 1;
+  belt.radius = Math.max(5, Math.min(13, pitch / (rows === 2 ? 1.1 : 2.2) - 2));
   belt.agents.forEach((a, i) => {
-    a.x = margin + (span * (i + 0.5)) / n;
-    a.y = beltTop + beltH + 54;
+    a.x = margin + pitch * (i + 0.5);
+    a.y = beltTop + beltH + 46 + (rows === 2 ? (i % 2) * 34 : 0);
   });
 
   // Twenty bins in two rows of ten, under the sorters.
   const cols = 10, gap = 6, pad = 14;
   const bw = (w - pad * 2 - gap * (cols - 1)) / cols, bh = 62;
-  const rowTop = Math.min(h - bh * 2 - gap - 8, beltTop + beltH + 134);
+  const rowTop = Math.min(h - bh * 2 - gap - 8, beltTop + beltH + 148);
   belt.boxes = BINS.map((b, i) => ({
     key: b.key, name: b.name,
     x: pad + (i % cols) * (bw + gap),
@@ -2506,7 +2516,7 @@ function beltDraw(lane) {
     const busy = !!a.parcel;
     const deciding = busy && a.parcel.state === 'deciding';
     bctx.beginPath();
-    bctx.arc(a.x, a.y, 13, 0, Math.PI * 2);
+    bctx.arc(a.x, a.y, belt.radius, 0, Math.PI * 2);
     bctx.fillStyle = busy ? cssVar('--surface-2') : cssVar('--incident');
     bctx.fill();
     bctx.lineWidth = 2;
@@ -2514,13 +2524,13 @@ function beltDraw(lane) {
     bctx.stroke();
     if (deciding) {
       bctx.globalAlpha = 0.35 + 0.35 * Math.sin(performance.now() / 150);
-      bctx.beginPath(); bctx.arc(a.x, a.y, 19, 0, Math.PI * 2);
+      bctx.beginPath(); bctx.arc(a.x, a.y, belt.radius + 6, 0, Math.PI * 2);
       bctx.strokeStyle = cssVar('--warning'); bctx.stroke();
       bctx.globalAlpha = 1;
     }
     bctx.strokeStyle = cssVar('--axis');
     bctx.lineWidth = 1;
-    bctx.beginPath(); bctx.moveTo(a.x, lane.top + lane.h); bctx.lineTo(a.x, a.y - 13); bctx.stroke();
+    bctx.beginPath(); bctx.moveTo(a.x, lane.top + lane.h); bctx.lineTo(a.x, a.y - belt.radius); bctx.stroke();
   });
 
   // bins
