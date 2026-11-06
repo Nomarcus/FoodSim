@@ -92,6 +92,12 @@ boundary, because the user presents this to an audience:
   against.
 - The gold labels must never reach a classifier or the API. That separation is
   the whole basis of the comparison.
+- The **template desk** (500 Inspire workflows) is synthetic, generated from a
+  fixed seed in `inspire-templates.js`. Jev judges relevance per template
+  (`noul`), then intent, affected area, fit and size for the top three. Only
+  relevance has a key, so only "found" is scored. The answer card is assembled
+  by code from those judgments - never describe Jev as writing the reply or
+  reading WFD files, and the time shown is a size band, not a measurement.
 
 ## Colour
 

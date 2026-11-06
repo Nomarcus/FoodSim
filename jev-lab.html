@@ -401,6 +401,126 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
+
+  /* --- template desk --------------------------------------------------- */
+  .ins-ask { display: flex; gap: 10px; align-items: stretch; }
+  .ins-ask textarea {
+    flex: 1; resize: vertical; min-height: 52px; font: 500 15px/1.45 var(--ui);
+    padding: 12px 14px; border-radius: 14px; border: 1px solid var(--axis);
+    background: var(--surface-1); color: var(--ink-1); box-shadow: var(--shadow-sm);
+  }
+  .ins-ask textarea:focus-visible { outline: 3px solid color-mix(in srgb, var(--incident) 35%, transparent); }
+  .ins-ask button { white-space: nowrap; padding: 0 22px; }
+  .ins-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+  .ins-presets button {
+    font-size: 12.5px; padding: 7px 12px; border-radius: 999px; text-align: left;
+    background: var(--surface-2); border-color: transparent; box-shadow: none; color: var(--ink-2);
+  }
+  .ins-presets button:hover:not(:disabled) { color: var(--ink-1); border-color: var(--axis); }
+  .ins-presets button.is-on { background: var(--ink-1); color: #fff; }
+
+  /* The wall gets the full width - 500 tiles are the picture - and the answer
+     sits underneath it in three columns. */
+  .ins-stage { display: flex; flex-direction: column; gap: 14px; }
+
+  .ins-wall {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
+    align-items: start; padding: 16px; border-radius: 18px; background: var(--surface-2);
+  }
+  @media (max-width: 720px) { .ins-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .ins-group { background: var(--surface-1); border-radius: 12px; padding: 10px; box-shadow: var(--shadow-sm); }
+  .ins-group h4 {
+    margin: 0 0 8px; font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+    display: flex; justify-content: space-between;
+  }
+  .ins-group h4 span { color: var(--ink-3); font-weight: 500; font-family: var(--mono); }
+  .ins-tiles { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+  .ins-tile {
+    --p: 0; aspect-ratio: 1; border-radius: 4px; cursor: pointer; position: relative;
+    /* One hue, rising in strength: a sequential ramp, not new categories. */
+    background: color-mix(in srgb, var(--incident) calc(var(--p) * 100%), var(--grid));
+    transition: background .35s ease, transform .2s ease, box-shadow .2s ease;
+  }
+  .ins-tile:hover { transform: scale(1.35); z-index: 2; box-shadow: var(--shadow-md); }
+  .ins-tile.scan { animation: insScan .9s ease-in-out infinite; }
+  @keyframes insScan {
+    0%, 100% { background: var(--grid); }
+    50% { background: color-mix(in srgb, var(--incident) 22%, var(--grid)); }
+  }
+  .ins-tile.hit { transform: scale(1.18); z-index: 1;
+    box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3.5px var(--incident); }
+  .ins-tile.top { animation: insPop .6s ease-out 1; }
+  @keyframes insPop { 0% { transform: scale(1); } 60% { transform: scale(1.7); } 100% { transform: scale(1.18); } }
+  /* Answer key marks: a dot, so they read on top of any heat. */
+  .ins-tile.k-ok::after, .ins-tile.k-miss::after, .ins-tile.k-false::after {
+    content: ""; position: absolute; inset: 28%; border-radius: 50%;
+  }
+  .ins-tile.k-ok::after { background: var(--good); box-shadow: 0 0 0 1.5px #fff; }
+  .ins-tile.k-miss::after { background: var(--critical); box-shadow: 0 0 0 1.5px #fff; }
+  .ins-tile.k-false::after { background: #fff; box-shadow: 0 0 0 1.5px var(--critical); }
+
+  .ins-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+                margin-top: 10px; font-size: 12px; color: var(--ink-3); }
+  .ins-legend span { display: inline-flex; gap: 6px; align-items: center; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .sw-0 { background: var(--grid); }
+  .sw-1 { background: color-mix(in srgb, var(--incident) 33%, var(--grid)); }
+  .sw-2 { background: color-mix(in srgb, var(--incident) 66%, var(--grid)); }
+  .sw-3 { background: var(--incident); }
+  .ins-key { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; color: var(--ink-2); }
+
+  .ins-answer {
+    background: var(--surface-1); border: 1px solid var(--grid); border-radius: 18px;
+    padding: 22px; box-shadow: var(--shadow-md); min-height: 150px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr); gap: 26px;
+  }
+  .ins-answer > .ins-empty { grid-column: 1 / -1; }
+  .ins-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  @media (max-width: 960px) { .ins-answer { grid-template-columns: 1fr; } }
+  .ins-empty { color: var(--ink-3); font-size: 14px; line-height: 1.6; margin: auto; text-align: center; max-width: 46ch; }
+  .ins-empty-big { font-size: 56px; font-weight: 800; letter-spacing: -0.04em; color: var(--grid); line-height: 1; }
+  .ins-intent {
+    align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px;
+    background: color-mix(in srgb, var(--incident) 12%, var(--surface-1)); color: var(--incident);
+  }
+  .ins-head { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; color: var(--ink-1); }
+  .ins-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; }
+  .ins-verdict { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ins-v { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
+  .ins-v .l { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+  .ins-v .v { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+  .ins-bar { height: 5px; border-radius: 999px; background: var(--grid); margin-top: 6px; overflow: hidden; }
+  .ins-bar i { display: block; height: 100%; background: var(--incident); border-radius: inherit;
+               transition: width .5s ease; }
+
+  .ins-flow { display: flex; flex-wrap: wrap; gap: 6px 4px; align-items: center; }
+  .ins-mod {
+    font-size: 11px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2);
+    border: 1px solid transparent; line-height: 1.25; color: var(--ink-2);
+  }
+  .ins-mod b { display: block; font-size: 10px; color: var(--ink-3); font-weight: 600; letter-spacing: .03em; }
+  .ins-mod.hot { background: color-mix(in srgb, var(--incident) 12%, var(--surface-1));
+                 border-color: var(--incident); color: var(--ink-1); }
+  .ins-mod.hot b { color: var(--incident); }
+  .ins-arrow { color: var(--ink-3); font-size: 11px; }
+  .ins-mod.ghost { border-style: dashed; border-color: var(--incident); background: transparent; color: var(--incident); }
+
+  .ins-hits { display: flex; flex-direction: column; gap: 6px; }
+  .ins-hit { display: grid; grid-template-columns: 1fr 44px; gap: 8px; align-items: center;
+             font-size: 12px; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+  .ins-hit:hover { background: var(--surface-2); }
+  .ins-hit .n { color: var(--ink-1); font-weight: 500; }
+  .ins-hit .id { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
+  .ins-hit .p { font-family: var(--mono); font-size: 11px; text-align: right; color: var(--ink-2); }
+  .ins-sec { font-size: 11px; font-weight: 700; color: var(--ink-3); letter-spacing: .05em; text-transform: uppercase; }
+
+  .ins-xml {
+    margin: 12px 0 0; padding: 14px 16px; border-radius: 12px; overflow-x: auto;
+    background: var(--ink-1); color: #e2e8f0; font: 12px/1.6 var(--mono);
+  }
+  .ins-xml .t { color: #7cc4ff; } .ins-xml .a { color: #a5e3c6; } .ins-xml .s { color: #ffd29a; }
+  @media (prefers-reduced-motion: reduce) { .ins-tile.scan, .ins-tile.top { animation: none; } }
 </style>
 </head>
 <body>
@@ -424,6 +544,7 @@
     <a href="#sec-race">Race</a>
     <a href="#sec-dups">Duplicates</a>
     <a href="#sec-belt">The belt</a>
+    <a href="#sec-inspire">Template desk</a>
     <a href="#sec-bench">Benchmark</a>
   </nav>
 
@@ -743,6 +864,84 @@
       went into it.
     </div>
   </div>
+  <div class="panel" id="sec-inspire">
+    <h2>Template desk — 500 Inspire workflows, one customer question</h2>
+
+    <div class="ins-ask">
+      <textarea id="insQ" rows="2" aria-label="Customer question"
+        placeholder="Ask about the template estate, e.g. Kan vi lägga till en QR-kod på Kraftbolaget Östs pappersfakturor?"></textarea>
+      <button class="primary" id="insRun">Ask Jev</button>
+    </div>
+    <div class="ins-presets" id="insPresets"></div>
+
+    <div class="ins-stage">
+      <div class="ins-wall" id="insWall" aria-label="500 templates, lit by how likely the question is about each"></div>
+      <aside class="ins-answer" id="insAnswer">
+        <div class="ins-empty">
+          <div class="ins-empty-big">500</div>
+          workflows on the wall. Pick a question — every template is judged in
+          parallel, and the ones it is about light up.
+        </div>
+      </aside>
+    </div>
+
+    <div class="ins-legend">
+      <span><i class="sw sw-0"></i>not about it</span>
+      <span><i class="sw sw-1"></i></span>
+      <span><i class="sw sw-2"></i></span>
+      <span><i class="sw sw-3"></i>certainly about it</span>
+      <label class="ins-key"><input type="checkbox" id="insKey"> Show the answer key</label>
+    </div>
+
+    <div class="kpis" style="margin-top:14px">
+      <div class="kpi"><div class="label">Templates judged</div><div class="value" id="inScanned">0</div><div class="sub">of 500</div></div>
+      <div class="kpi"><div class="label">Judgments</div><div class="value" id="inJudg">—</div><div class="sub" id="inJudgSub">&nbsp;</div></div>
+      <div class="kpi"><div class="label">Requests</div><div class="value" id="inReq">—</div><div class="sub">50 templates each</div></div>
+      <div class="kpi"><div class="label">Wall clock</div><div class="value" id="inTime">—</div><div class="sub">question to answer</div></div>
+      <div class="kpi"><div class="label">Found</div><div class="value" id="inFound">—</div><div class="sub" id="inFoundSub">against the answer key</div></div>
+      <div class="kpi"><div class="label">False hits</div><div class="value" id="inFalse">—</div><div class="sub">lit, but not about it</div></div>
+    </div>
+    <div class="status" id="insStatus">Pick a question, or write your own.</div>
+
+    <div class="panel" id="insDetail" style="display:none; margin-top:14px">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px">
+        <h2 id="insDetailTitle" style="margin:0; font-size:15px">Template</h2>
+        <button id="insDetailClose" style="padding:4px 12px">Close</button>
+      </div>
+      <pre class="ins-xml" id="insXml"></pre>
+      <div class="note" style="margin-top:10px">An illustration of an exported workflow, not
+      the WFD schema. What the model is actually shown is the one-line summary above it.</div>
+    </div>
+
+    <div class="note">
+      <strong>What is decided, and by whom.</strong> Each template is reduced, by
+      ordinary code, to a one-line summary of its workflow — customer, document,
+      segment, languages, data input, scripts, objects, outputs — the way a real
+      estate would be after exporting each WFD. Jev then answers one
+      <strong>noul</strong> per template: <em>is this question about this
+      template?</em> All 500 are asked at once, 50 to a request, so the whole estate
+      is read in a handful of round trips. For the strongest matches it then makes
+      four more judgments: what kind of question it is (<strong>choice</strong>),
+      which part of the workflow the change lands in (<strong>choice</strong> over
+      six areas), whether the current template can take it (<strong>noul</strong>),
+      and how big the change is (<strong>score</strong> over four sizes).
+      <br><br>
+      <strong>What it does not do.</strong> It does not write the reply and it does
+      not open the files. The answer card is assembled by code from those typed
+      judgments and the template's own summary. The time is Jev's judgment of the
+      <em>size</em> of the change mapped onto four bands — an estimate, never
+      measured, and never graded.
+      <br><br>
+      <strong>What is checked.</strong> The 500 templates are synthetic, generated
+      from a fixed seed so everyone sees the same estate. Each preset question has a
+      hand-written answer key — which templates it is about — planted alongside
+      near misses: the same customer's other documents, the same document for
+      another customer. Tick <em>Show the answer key</em> to see which lit tiles
+      were right. Only which templates were found is scored; a question you write
+      yourself has no key, so it is shown and not graded.
+    </div>
+  </div>
+
   <div class="panel" id="sec-bench">
     <h2>Run</h2>
     <div class="controls">
@@ -829,6 +1028,7 @@
 <div id="tooltip"></div>
 
 <script src="typesafe-tickets.js"></script>
+<script src="inspire-templates.js"></script>
 <script>
 /*
  * This page talks to the same-origin proxy directly rather than reusing the
@@ -3332,6 +3532,373 @@ truckStage.addEventListener('click', evt => {
 });
 
 requestAnimationFrame(beltFrame);
+
+/* --- template desk ----------------------------------------------------
+ *
+ * A customer asks about their document setup in their own words. The estate
+ * is 500 workflows. Two rounds of typed judgments answer it:
+ *
+ *   1. One noul per template - is this question about it? - 50 to a request,
+ *      all requests in flight together, so the wall lights as batches land.
+ *   2. For the strongest matches: what kind of question it is, where in the
+ *      workflow the change lands, whether the template can take it, and how
+ *      big it is. Every one of those is the model's; the card is assembled
+ *      from them by code and writes nothing of its own.
+ *
+ * Only round 1 has an answer key, so only round 1 is scored.
+ */
+const INS = InspireTemplates;
+const INS_ALL = INS.generate(500);
+const INS_BATCH = 50;
+const INS_AREA_CRITERIA = {};
+INS.AREAS.forEach(a => { INS_AREA_CRITERIA[a.key] = a.criteria; });
+
+const ins = { running: false, preset: null, p: new Array(INS_ALL.length).fill(null), last: null };
+const insTiles = [];
+
+function insBuildWall() {
+  const wall = $('insWall');
+  wall.innerHTML = '';
+  INS.DOCS.forEach(d => {
+    const members = INS_ALL.map((t, i) => ({ t, i })).filter(x => x.t.doc === d.key);
+    const g = document.createElement('div');
+    g.className = 'ins-group';
+    g.innerHTML = '<h4>' + escapeHtml(d.name) + '<span>' + members.length + '</span></h4>';
+    const tiles = document.createElement('div');
+    tiles.className = 'ins-tiles';
+    members.forEach(({ i }) => {
+      const el = document.createElement('div');
+      el.className = 'ins-tile';
+      el.dataset.i = i;
+      tiles.appendChild(el);
+      insTiles[i] = el;
+    });
+    g.appendChild(tiles);
+    wall.appendChild(g);
+  });
+}
+
+function insPresets() {
+  const box = $('insPresets');
+  INS.PRESETS.forEach((p, k) => {
+    const b = document.createElement('button');
+    b.textContent = p.text;
+    b.addEventListener('click', () => {
+      $('insQ').value = p.text;
+      ins.preset = k;
+      [...box.children].forEach((c, j) => c.classList.toggle('is-on', j === k));
+      insRun();
+    });
+    box.appendChild(b);
+  });
+  // Editing the text makes it someone's own question, which has no key.
+  $('insQ').addEventListener('input', () => {
+    ins.preset = null;
+    [...box.children].forEach(c => c.classList.remove('is-on'));
+  });
+}
+
+async function insAsk(state, questions, attempt) {
+  attempt = attempt || 0;
+  const started = performance.now();
+  const res = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ state, questions })
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+    if (retryable && attempt < 3) {
+      await new Promise(r => setTimeout(r, 400 * Math.pow(2, attempt) * (1 - Math.random() * 0.25)));
+      return insAsk(state, questions, attempt + 1);
+    }
+    let detail = '';
+    try { detail = JSON.parse(text).error || ''; } catch (e) { /* raw */ }
+    throw new Error('HTTP ' + res.status + (detail ? ': ' + detail : ''));
+  }
+  return { answers: (JSON.parse(text).answers) || {}, latency: performance.now() - started };
+}
+
+function insRelevanceBatch(question, idx) {
+  const state = {
+    question,
+    templates: idx.map((i, k) => ({ index: k, summary: INS.describe(INS_ALL[i]) }))
+  };
+  const questions = {};
+  idx.forEach((_, k) => {
+    questions['rel_' + k] = {
+      type: 'noul',
+      instructions: 'A customer of the document-composition team asked the question in ' +
+        '`question`. Is that question about the template summarised in `templates[' + k +
+        '].summary`? Match on customer, document type and every detail the question names.',
+      criteria: {
+        true: 'The question is about this template: the customer, the document and any ' +
+              'detail it mentions (segment, language, channel, input, scripts) all fit.',
+        false: 'The question is about some other template: a different customer, a different ' +
+               'document, or a detail the question names does not fit this one.'
+      }
+    };
+  });
+  return { state, questions };
+}
+
+function insDetailsAsk(question, cands) {
+  const state = {
+    question,
+    candidates: cands.map((i, k) => ({ index: k, summary: INS.describe(INS_ALL[i]) }))
+  };
+  const questions = {
+    intent: {
+      type: 'choice',
+      instructions: 'What kind of question is the one in `question`?',
+      criteria: INS.INTENTS
+    }
+  };
+  cands.forEach((_, k) => {
+    const ref = '`candidates[' + k + '].summary`';
+    questions['area_' + k] = {
+      type: 'choice',
+      instructions: 'If what `question` asks for were done to the template in ' + ref +
+        ', which part of its workflow would it land in?',
+      criteria: INS_AREA_CRITERIA
+    };
+    questions['can_' + k] = {
+      type: 'noul',
+      instructions: 'Can what `question` asks for be done within the existing template in ' +
+        ref + ', without building a new one?',
+      criteria: {
+        true: 'Yes - the template has, or can be extended with, what is needed.',
+        false: 'No - it would need a new template, or something the setup cannot do.'
+      }
+    };
+    questions['size_' + k] = {
+      type: 'score',
+      instructions: 'How big a piece of work is what `question` asks for, done to the ' +
+        'template in ' + ref + '?',
+      criteria: INS.EFFORT
+    };
+  });
+  return { state, questions };
+}
+
+function insPaint() {
+  const key = $('insKey').checked && ins.preset != null && ins.last;
+  const gold = key ? INS.PRESETS[ins.preset].gold : null;
+  INS_ALL.forEach((t, i) => {
+    const el = insTiles[i], p = ins.p[i];
+    el.style.setProperty('--p', p == null ? 0 : p);
+    el.classList.toggle('hit', p != null && p >= 0.5);
+    el.classList.remove('k-ok', 'k-miss', 'k-false');
+    if (gold) {
+      const g = gold(t), hit = p != null && p >= 0.5;
+      if (g && hit) el.classList.add('k-ok');
+      else if (g) el.classList.add('k-miss');
+      else if (hit) el.classList.add('k-false');
+    }
+  });
+}
+
+function insFlow(t, hotArea, ghost) {
+  const mods = INS.modules(t);
+  const html = mods.map(m =>
+    '<div class="ins-mod' + (m.area === hotArea ? ' hot' : '') + '"><b>' + escapeHtml(m.type) +
+    '</b>' + escapeHtml(m.label) + '</div>').join('<span class="ins-arrow">→</span>');
+  // A change that lands somewhere the workflow has nothing yet - a QR code on
+  // a template with no objects - is drawn as the module it would add.
+  const has = mods.some(m => m.area === hotArea);
+  const area = INS.AREAS.find(a => a.key === hotArea);
+  return '<div class="ins-flow">' + html + (ghost && !has && area
+    ? '<span class="ins-arrow">+</span><div class="ins-mod ghost"><b>new</b>' +
+      escapeHtml(area.name) + '</div>' : '') + '</div>';
+}
+
+function insCard(question, ranked, det) {
+  const top = ranked[0];
+  const t = INS_ALL[top.i];
+  const intent = det.intent;
+  const label = { setup: 'Setup', change: 'Can we change it', effort: 'How long', which: 'Which templates' }[intent] || 'Answer';
+  const area = INS.AREAS.find(a => a.key === det.rows[0].area);
+  const can = det.rows[0].can, size = det.rows[0].size;
+  const band = size == null ? '—' : INS.EFFORT_BANDS[Math.min(3, Math.floor(size * 4))];
+
+  let head = '', sub = '';
+  if (intent === 'which') {
+    const n = ranked.filter(r => r.p >= 0.5).length;
+    head = n + (n === 1 ? ' template matches' : ' templates match');
+    sub = 'of 500, each judged on its own';
+  } else {
+    head = escapeHtml(t.name);
+    sub = t.id + ' · ' + escapeHtml(t.team) + ' · changed ' + t.changed;
+  }
+
+  const verdict = intent === 'setup' ? '' :
+    '<div class="ins-verdict">' +
+      '<div class="ins-v"><div class="l">Fits the existing template</div><div class="v">' +
+        (can == null ? '—' : can >= 0.66 ? 'Yes' : can >= 0.4 ? 'Unclear' : 'No') +
+        ' <span style="font-size:12px;color:var(--ink-3);font-weight:500">' +
+        (can == null ? '' : Math.round(can * 100) + '%') + '</span></div>' +
+        '<div class="ins-bar"><i style="width:' + Math.round((can || 0) * 100) + '%"></i></div></div>' +
+      '<div class="ins-v"><div class="l">Size of the change</div><div class="v">' + band + '</div>' +
+        '<div class="ins-bar"><i style="width:' + Math.round((size || 0) * 100) + '%"></i></div></div>' +
+    '</div>';
+
+  const hits = ranked.slice(0, intent === 'which' ? 8 : 4).map(r =>
+    '<div class="ins-hit" data-i="' + r.i + '"><div><div class="n">' + escapeHtml(INS_ALL[r.i].name) +
+    '</div><div class="id">' + INS_ALL[r.i].id + '</div></div><div class="p">' +
+    Math.round(r.p * 100) + '%</div></div>').join('');
+
+  const flowCol = intent === 'which'
+    ? '<div class="ins-sec">Matches</div><div class="ins-hits">' + hits + '</div>'
+    : '<div class="ins-sec">Workflow' + (area && intent !== 'setup' ? ' — lands in ' + escapeHtml(area.name) : '') +
+      '</div>' + insFlow(t, intent === 'setup' ? null : det.rows[0].area, intent !== 'setup');
+  const hitsCol = intent === 'which'
+    ? '<div class="ins-sec">How it was found</div><div class="ins-sub" style="margin:0">One judgment per template, ' +
+      'all 500 in parallel. Anything at 50% or more counts as a match.</div>'
+    : '<div class="ins-sec">Closest templates</div><div class="ins-hits">' + hits + '</div>';
+
+  $('insAnswer').innerHTML =
+    '<div class="ins-col"><span class="ins-intent">' + label + '</span>' +
+      '<div><div class="ins-head">' + head + '</div><div class="ins-sub">' + sub + '</div></div>' +
+      verdict + '</div>' +
+    '<div class="ins-col">' + flowCol + '</div>' +
+    '<div class="ins-col">' + hitsCol + '</div>';
+
+  $('insAnswer').querySelectorAll('.ins-hit').forEach(el =>
+    el.addEventListener('click', () => insOpen(+el.dataset.i)));
+}
+
+async function insRun() {
+  const question = $('insQ').value.trim();
+  if (!question || ins.running) return;
+  ins.running = true;
+  $('insRun').disabled = true;
+  ins.p.fill(null);
+  ins.last = null;
+  insTiles.forEach(el => { el.classList.add('scan'); el.classList.remove('top'); });
+  insPaint();
+  $('insAnswer').innerHTML = '<div class="ins-empty"><div class="ins-empty-big">…</div>Reading 500 workflows.</div>';
+  ['inJudg', 'inReq', 'inTime', 'inFound', 'inFalse'].forEach(id => { $(id).textContent = '—'; });
+  $('inScanned').textContent = '0';
+  setInsStatus('Asking about all 500 templates at once…');
+
+  const started = performance.now();
+  let requests = 0, judged = 0;
+  const batches = [];
+  for (let s = 0; s < INS_ALL.length; s += INS_BATCH) {
+    batches.push(Array.from({ length: Math.min(INS_BATCH, INS_ALL.length - s) }, (_, k) => s + k));
+  }
+
+  try {
+    await withLimit(batches.map(idx => async () => {
+      const { state, questions } = insRelevanceBatch(question, idx);
+      const { answers } = await insAsk(state, questions);
+      requests++;
+      idx.forEach((i, k) => {
+        const a = answers['rel_' + k];
+        ins.p[i] = a && typeof a.noul === 'number' ? a.noul : 0;
+        insTiles[i].classList.remove('scan');
+      });
+      judged += idx.length;
+      $('inScanned').textContent = judged;
+      insPaint();
+    }), 8);
+
+    const ranked = ins.p.map((p, i) => ({ i, p: p || 0 })).sort((a, b) => b.p - a.p);
+    const cands = ranked.slice(0, 3).map(r => r.i);
+    ranked.slice(0, 3).forEach(r => insTiles[r.i].classList.add('top'));
+
+    setInsStatus('Found the closest templates — judging what the change would take…');
+    const { state, questions } = insDetailsAsk(question, cands);
+    const { answers } = await insAsk(state, questions);
+    requests++;
+    const det = {
+      intent: answers.intent && INS.INTENTS[answers.intent.choice] ? answers.intent.choice : 'setup',
+      rows: cands.map((_, k) => ({
+        area: answers['area_' + k] && answers['area_' + k].choice,
+        can: answers['can_' + k] && typeof answers['can_' + k].noul === 'number' ? answers['can_' + k].noul : null,
+        size: answers['size_' + k] && typeof answers['size_' + k].score === 'number' ? answers['size_' + k].score : null
+      }))
+    };
+
+    const wall = performance.now() - started;
+    const judgments = INS_ALL.length + Object.keys(questions).length;
+    $('inJudg').textContent = judgments;
+    $('inJudgSub').textContent = '500 + ' + Object.keys(questions).length + ' on the top three';
+    $('inReq').textContent = requests;
+    $('inTime').textContent = fmtMs(wall);
+
+    if (ins.preset != null) {
+      const gold = INS.PRESETS[ins.preset].gold;
+      const want = INS_ALL.map((t, i) => gold(t) ? i : -1).filter(i => i >= 0);
+      const hit = new Set(ins.p.map((p, i) => p >= 0.5 ? i : -1).filter(i => i >= 0));
+      const found = want.filter(i => hit.has(i)).length;
+      $('inFound').textContent = found + ' / ' + want.length;
+      $('inFoundSub').textContent = 'against the answer key';
+      $('inFalse').textContent = [...hit].filter(i => !want.includes(i)).length;
+    } else {
+      $('inFound').textContent = '—';
+      $('inFoundSub').textContent = 'your own question — no key';
+      $('inFalse').textContent = '—';
+    }
+
+    ins.last = { question, ranked, det };
+    insCard(question, ranked, det);
+    insPaint();
+    setInsStatus('500 templates and the top three judged in ' + requests + ' requests, ' + fmtMs(wall) + '.');
+  } catch (err) {
+    insTiles.forEach(el => el.classList.remove('scan'));
+    setInsStatus('Stopped: ' + err.message + '. This needs the api/typesafe proxy.', true);
+    $('insAnswer').innerHTML = '<div class="ins-empty">No answer — the request failed.</div>';
+  } finally {
+    ins.running = false;
+    $('insRun').disabled = false;
+  }
+}
+
+function setInsStatus(msg, err) {
+  $('insStatus').textContent = msg;
+  $('insStatus').classList.toggle('err', !!err);
+}
+
+function insXmlHtml(xml) {
+  return escapeHtml(xml)
+    .replace(/&lt;(\/?)([A-Za-z]+)/g, '&lt;$1<span class="t">$2</span>')
+    .replace(/([a-z]+)=&quot;([^&]*)&quot;/g, '<span class="a">$1</span>=<span class="s">&quot;$2&quot;</span>');
+}
+
+function insOpen(i) {
+  const t = INS_ALL[i];
+  $('insDetailTitle').textContent = t.name;
+  $('insXml').innerHTML = '<span style="color:#94a3b8">&lt;!-- shown to the model: ' +
+    escapeHtml(INS.describe(t)) + ' --&gt;</span>\n' + insXmlHtml(INS.toXml(t));
+  $('insDetail').style.display = 'block';
+  $('insDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+$('insWall').addEventListener('mouseover', evt => {
+  const el = evt.target.closest('.ins-tile');
+  if (!el) return;
+  const i = +el.dataset.i, t = INS_ALL[i], p = ins.p[i];
+  showTip(evt, '<strong>' + escapeHtml(t.name) + '</strong><br>' + t.id +
+    (p == null ? '' : ' · ' + Math.round(p * 100) + '% about this question'));
+});
+$('insWall').addEventListener('mousemove', evt => {
+  if (evt.target.closest('.ins-tile')) showTip(evt, tooltip.innerHTML);
+});
+$('insWall').addEventListener('mouseleave', hideTip);
+$('insWall').addEventListener('click', evt => {
+  const el = evt.target.closest('.ins-tile');
+  if (el) insOpen(+el.dataset.i);
+});
+$('insRun').addEventListener('click', insRun);
+$('insQ').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) insRun(); });
+$('insKey').addEventListener('change', insPaint);
+$('insDetailClose').addEventListener('click', () => { $('insDetail').style.display = 'none'; });
+
+insBuildWall();
+insPresets();
+insPaint();
 
 fetch(PROXY, { headers: { Accept: 'application/json' } })
   .then(r => r.ok ? r.json() : Promise.reject())
