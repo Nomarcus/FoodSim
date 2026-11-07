@@ -5,11 +5,11 @@
 import * as THREE from './assets/vendor/three/three.module.min.js';
 
 const U = 100;                      // simulation pixels per 3D unit (≈ 1 m)
-const COURT_HALF_Z = 4.0;           // the sim has no depth; this is only how wide the court looks
-const LIMB_Z = 0.06;                // back/front limbs sit this far either side of the play plane
 
 export function createView3D(host, api){
-  const {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS} = api;
+  const {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS, COURT_Z, Z_WALL} = api;
+  const COURT_HALF_Z = COURT_Z / U, WALL_Z = Z_WALL / U;
+  const Z = (z)=> z / U;
   const X = (x)=> (x - NET_X) / U;
   const Y = (y)=> (FLOOR_Y - y) / U;
   const HALF_L = (WALL_R - NET_X) / U;
@@ -37,7 +37,7 @@ export function createView3D(host, api){
   sun.position.set(-3, 12, 7);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, {left: -8, right: 8, top: 8, bottom: -3, near: 1, far: 30});
+  Object.assign(sun.shadow.camera, {left: -9, right: 9, top: 9, bottom: -6, near: 1, far: 34});
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
@@ -97,7 +97,7 @@ export function createView3D(host, api){
     }
   });
   netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping;
-  const netSpan = 2 * COURT_HALF_Z + 1.0;
+  const netSpan = 2 * WALL_Z;
   const meshH = NET_H - Y(NET_BOT);
   const netTexTop = netTex.clone(); netTexTop.repeat.set(netSpan / 0.8, meshH / 0.8); netTexTop.needsUpdate = true;
   const netTexLow = netTex.clone(); netTexLow.repeat.set(netSpan / 0.8, Y(NET_BOT) / 0.8); netTexLow.needsUpdate = true;
@@ -128,13 +128,21 @@ export function createView3D(host, api){
 
   // Glass end walls and ceiling truss: the sim's walls and ceiling, made visible.
   const glass = new THREE.MeshStandardMaterial({color: '#9fb6ff', transparent: true, opacity: 0.06, roughness: 0.1, side: THREE.DoubleSide, depthWrite: false});
+  const frameMat = new THREE.LineBasicMaterial({color: '#7e93d6', transparent: true, opacity: 0.35});
   for(const sx of [-1, 1]){
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(2 * COURT_HALF_Z + 1, CEIL), glass);
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(2 * WALL_Z, CEIL), glass);
     pane.rotation.y = Math.PI / 2; pane.position.set(sx * HALF_L, CEIL / 2, 0);
     scene.add(pane);
-    const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(2 * COURT_HALF_Z + 1, CEIL)), new THREE.LineBasicMaterial({color: '#7e93d6', transparent: true, opacity: 0.35}));
+    const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(2 * WALL_Z, CEIL)), frameMat);
     frame.rotation.y = Math.PI / 2; frame.position.copy(pane.position);
     scene.add(frame);
+  }
+  // side walls: only the far one is glass you can see; the near one is just a faint frame
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(2 * HALF_L, CEIL), glass);
+  far.position.set(0, CEIL / 2, -WALL_Z); scene.add(far);
+  for(const sz of [-1, 1]){
+    const fr = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(2 * HALF_L, CEIL)), frameMat);
+    fr.position.set(0, CEIL / 2, sz * WALL_Z); scene.add(fr);
   }
   const trussMat = mat('#2a3366', {metalness: 0.5, roughness: 0.4});
   for(const z of [-3, 0, 3]){
@@ -154,7 +162,7 @@ export function createView3D(host, api){
   const SIDE_ROWS = 8, END_ROWS = 6;
   const rng = mulberry(11);
   for(let r = 0; r < SIDE_ROWS; r++){
-    const z = -(COURT_HALF_Z + 1.8 + r * 0.75), y = 0.2 + r * 0.42;
+    const z = -(WALL_Z + 0.9 + r * 0.75), y = 0.2 + r * 0.42;
     const tier = new THREE.Mesh(new THREE.BoxGeometry(2 * HALF_L + 4, 0.42, 0.75), standMat);
     tier.position.set(0, y - 0.21, z); tier.receiveShadow = true; scene.add(tier);
     for(let x = -HALF_L - 1.7; x < HALF_L + 1.7; x += 0.32 + rng() * 0.06){
@@ -165,9 +173,9 @@ export function createView3D(host, api){
   for(const sx of [-1, 1]){
     for(let r = 0; r < END_ROWS; r++){
       const x = sx * (HALF_L + 1.6 + r * 0.75), y = 0.2 + r * 0.42;
-      const tier = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.42, 2 * COURT_HALF_Z + 2), standMat);
+      const tier = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.42, 2 * WALL_Z + 1), standMat);
       tier.position.set(x, y - 0.21, 0); tier.receiveShadow = true; scene.add(tier);
-      for(let z = -COURT_HALF_Z - 0.6; z < COURT_HALF_Z + 0.6; z += 0.34 + rng() * 0.06){
+      for(let z = -WALL_Z; z < WALL_Z; z += 0.34 + rng() * 0.06){
         if(rng() < 0.08) continue;
         fans.push({x, y, z, rot: -sx * Math.PI / 2, side: sx < 0 ? 'left' : 'right'});
       }
@@ -211,9 +219,9 @@ export function createView3D(host, api){
   for(const t of Object.values(ledTex)){ t.wrapS = THREE.RepeatWrapping; t.repeat.set(2, 1); }
   const ledMat = new THREE.MeshStandardMaterial({map: ledTex.idle, emissiveMap: ledTex.idle, emissive: '#ffffff', emissiveIntensity: 1.1, roughness: 0.5});
   const ledBack = new THREE.Mesh(new THREE.BoxGeometry(2 * HALF_L + 2, 0.34, 0.06), ledMat);
-  ledBack.position.set(0, 0.17, -(COURT_HALF_Z + 1.0)); scene.add(ledBack);
+  ledBack.position.set(0, 0.17, -(WALL_Z + 0.35)); scene.add(ledBack);
   for(const sx of [-1, 1]){
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 2 * COURT_HALF_Z), ledMat);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 2 * WALL_Z), ledMat);
     b.position.set(sx * (HALF_L + 1.0), 0.17, 0); scene.add(b);
   }
 
@@ -227,7 +235,6 @@ export function createView3D(host, api){
     leg: new THREE.MeshStandardMaterial({color: '#ffd45a', transparent: true, opacity: 0.75}),
     body: new THREE.MeshStandardMaterial({color: '#ff648c', transparent: true, opacity: 0.6})
   };
-  const SEG_Z = [-LIMB_Z, -LIMB_Z, -LIMB_Z, LIMB_Z, LIMB_Z, LIMB_Z, -LIMB_Z, -LIMB_Z, -LIMB_Z, LIMB_Z, LIMB_Z, LIMB_Z, 0, 0, 0];
 
   function segColor(p, i){
     const team = COLORS[p.team], app = p.app, part = p.segs[i].part;
@@ -269,15 +276,15 @@ export function createView3D(host, api){
   }
 
   const up = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3(), tmp = new THREE.Vector3();
-  function placeCapsule(part, ax, ay, bx, by, z, r){
-    const x1 = X(ax), y1 = Y(ay), x2 = X(bx), y2 = Y(by), rr = r / U;
-    part.a.position.set(x1, y1, z); part.a.scale.setScalar(rr);
-    part.b.position.set(x2, y2, z); part.b.scale.setScalar(rr);
-    dir.set(x2 - x1, y2 - y1, 0);
+  function placeCapsule(part, s){
+    const x1 = X(s.ax), y1 = Y(s.ay), z1 = Z(s.az), x2 = X(s.bx), y2 = Y(s.by), z2 = Z(s.bz), rr = s.r / U;
+    part.a.position.set(x1, y1, z1); part.a.scale.setScalar(rr);
+    part.b.position.set(x2, y2, z2); part.b.scale.setScalar(rr);
+    dir.set(x2 - x1, y2 - y1, z2 - z1);
     const len = dir.length();
     if(len < 1e-5){ part.cyl.visible = false; part.b.visible = false; return; }
     part.cyl.visible = true; part.b.visible = true;
-    part.cyl.position.set((x1 + x2) / 2, (y1 + y2) / 2, z);
+    part.cyl.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
     part.cyl.quaternion.setFromUnitVectors(up, dir.multiplyScalar(1 / len));
     part.cyl.scale.set(rr, len, rr);
   }
@@ -286,13 +293,13 @@ export function createView3D(host, api){
     const segs = p.segs;
     for(let i = 0; i < segs.length; i++){
       const s = segs[i], part = rig.parts[i];
-      placeCapsule(part, s.ax, s.ay, s.bx, s.by, SEG_Z[i], s.r);
+      placeCapsule(part, s);
       const m = hitboxes ? KIND_MAT[s.kind] : part.base;
       if(part.cyl.material !== m){ part.cyl.material = m; part.a.material = m; part.b.material = m; }
     }
     for(const e of rig.extras) e.visible = !hitboxes;
     const hd = segs[14], rh = hd.r / U, f = p.facing;
-    rig.headGroup.position.set(X(hd.ax), Y(hd.ay), 0);
+    rig.headGroup.position.set(X(hd.ax), Y(hd.ay), Z(hd.az));
     rig.headGroup.rotation.set(0, 0, -p.rot);
     rig.hair.scale.set(rh * 1.015, rh * 1.015, rh * 1.015);
     rig.hair.rotation.set(0, 0, f * (p.app.style === 2 ? 0.7 : 0.35));
@@ -311,7 +318,7 @@ export function createView3D(host, api){
     }
     for(let k = 0; k < 2; k++){
       const th = segs[6 + k * 3];
-      rig.pads[k].position.set(X(th.bx), Y(th.by), k === 0 ? -LIMB_Z : LIMB_Z);
+      rig.pads[k].position.set(X(th.bx), Y(th.by), Z(th.bz));
       rig.pads[k].scale.setScalar(th.r / U * 1.0);
     }
   }
@@ -466,7 +473,7 @@ export function createView3D(host, api){
     for(let i = 0; i < ballMeshes.length; i++) ballMeshes[i].visible = i < balls.length;
     balls.forEach((b, i)=>{
       const m = ballMesh(i);
-      m.position.set(X(b.x), Y(b.y), 0);
+      m.position.set(X(b.x), Y(b.y), Z(b.z));
       m.scale.setScalar(api.getBallR() / U);
       m.rotation.set(0.4, 0, -b.angle);
       m.material = opts.hitboxes ? ballHit : ballMat;
@@ -484,8 +491,8 @@ export function createView3D(host, api){
   }
 
   // Simulation point -> CSS pixels inside the host (for text and sparks drawn on the 2D overlay).
-  function project(x, y){
-    p3.set(X(x), Y(y), 0).project(camera);
+  function project(x, y, z = 0){
+    p3.set(X(x), Y(y), Z(z)).project(camera);
     const r = host.getBoundingClientRect();
     return {x: (p3.x + 1) / 2 * r.width, y: (1 - p3.y) / 2 * r.height, visible: p3.z < 1};
   }
