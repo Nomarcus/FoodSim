@@ -266,6 +266,10 @@
               <label class="label" for="cbShowSensors">Show sensors</label>
               <input id="cbShowSensors" type="checkbox">
             </div>
+            <div class="control check">
+              <label class="label" for="cbShowHitboxes">Show hitboxes (exact collision shapes)</label>
+              <input id="cbShowHitboxes" type="checkbox">
+            </div>
           </div>
 
           <div class="btn-row">
@@ -282,8 +286,8 @@
         <section class="legend">
           <strong>How it works</strong>
           <p>Two teams, <span class="tl">blue</span> and <span class="tr">orange</span>, try to volley the ball over the net. Max three touches per side, like real volleyball.</p>
-          <p><strong>The evolved brain decides</strong> four things per player, 60 times a second: move, jump, hit angle and hit power. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
-          <p><strong>Ordinary code</strong> animates the body: spine, head, three-part arms (upper arm, forearm, hand) and three-part legs (thigh, shin, foot) are posed with inverse kinematics so the hands reach for the ball. Collisions use the forearms, hands, shins, feet, torso and head.</p>
+          <p><strong>The evolved brain decides</strong> five things per player, 60 times a second: move, jump, hit angle, hit power and whether to throw a backflip in the air. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
+          <p><strong>Ordinary code</strong> animates the body: spine, head, three-part arms (upper arm, forearm, hand) and three-part legs (thigh, shin, foot) are posed with inverse kinematics so the hands reach for the ball. Hands and forearms strike, shins and feet kick (upside down in a flip that is a bicycle kick), and every other part only deflects the ball. Each part is drawn exactly as wide as its collision shape – tick “Show hitboxes” to see them.</p>
           <p>Every genome in a generation receives the <em>same</em> set of serves, so their scores are directly comparable.</p>
         </section>
       </aside>
@@ -323,11 +327,11 @@
   // =====================================================================
   const INPUT_LABELS = ['Ball x', 'Ball y', 'Ball vx', 'Ball vy', 'Land x', 'Land time', 'Lands mine',
     'Ball mine', 'Net dist', 'Height', 'Vel y', 'Grounded', 'Mate x', 'Closest', 'Touches', 'Hit last', 'Opp x'];
-  const OUTPUT_LABELS = ['Move', 'Jump', 'Aim', 'Power'];
+  const OUTPUT_LABELS = ['Move', 'Jump', 'Aim', 'Power', 'Flip'];
   const N_IN = INPUT_LABELS.length;
   const N_OUT = OUTPUT_LABELS.length;
   const IN_LAND_X = 4;
-  const OUT_MOVE = 0, OUT_JUMP = 1, OUT_AIM = 2, OUT_POWER = 3;
+  const OUT_MOVE = 0, OUT_JUMP = 1, OUT_AIM = 2, OUT_POWER = 3, OUT_FLIP = 4;
   const WEIGHT_CAP = 8;
 
   // =====================================================================
@@ -667,8 +671,16 @@
 
   // Rewards that are not on sliders
   const ARC_HEIGHT = 100;
+  const R_FLIP = 0.5, FLIPS_REWARDED = 3;   // style bonus for a landed flip, capped per serve
   const R_CROSS = 10, R_PASS = 3, R_FAULT = -3, R_SURVIVE = 0.6, R_POSITION = 0.25, R_NET_CLIP = -0.5;
   const C_POINT_WIN = 20, C_POINT_LOSS = -6, C_CROSS = 4;
+
+  // Collision radius of every body part at scale 1. The renderer draws each part with
+  // exactly this radius, so what you see touching the ball is what touches the ball.
+  const R = {upper: 5, fore: 4, hand: 5.6, torso: 12, neck: 3.8, head: 13, thigh: 6.6, shin: 4.8, foot: 4.4};
+  // Which parts may strike the ball actively; everything else only deflects it.
+  const PART_KIND = {upper: 'body', fore: 'arm', hand: 'arm', thigh: 'body', shin: 'leg', foot: 'leg', torso: 'body', neck: 'body', head: 'body'};
+  const SEG_PARTS = ['upper', 'fore', 'hand', 'upper', 'fore', 'hand', 'thigh', 'shin', 'foot', 'thigh', 'shin', 'foot', 'torso', 'neck', 'head'];
 
   // Body proportions at scale 1 (pixels)
   const BODY = {thigh: 38, shin: 38, foot: 15, spine1: 28, spine2: 24, neck: 13, head: 13,
@@ -679,7 +691,7 @@
     addConnectionRate: 12, addNodeRate: 4,
     armReward: 2, kickReward: 1, headPenalty: 0.5,
     playersPerTeam: 2, ballCount: 1, ballRadius: 20, playerScale: 1, jumpScale: 1,
-    simSpeed: 2, mode: 'cooperation', showSensors: false
+    simSpeed: 2, mode: 'cooperation', showSensors: false, showHitboxes: false
   });
   const PRESETS = {
     start: {populationSize: 40, initialHidden: 2, mutationRate: 30, elitism: 0.10, addConnectionRate: 12, addNodeRate: 5,
@@ -794,12 +806,17 @@
       this.arms = [0, 1].map(()=> ({sx: 0, sy: 0, mx: 0, my: 0, ex: 0, ey: 0, tx: 0, ty: 0, hx: 0, hy: 0}));
       this.legs = [0, 1].map(()=> ({sx: 0, sy: 0, mx: 0, my: 0, ex: 0, ey: 0, tx: 0, ty: 0, hx: 0, hy: 0}));
       this.focus = null;
+      // 15 capsules: back arm, front arm, back leg, front leg, torso, neck, head
+      this.segs = SEG_PARTS.map((part)=> ({part, kind: PART_KIND[part], ax: 0, ay: 0, bx: 0, by: 0, r: 0}));
+      this.app = appearance(team, slot);
     }
     reset(x){
       this.x = x; this.y = PELVIS_GROUND_Y;
       this.vx = 0; this.vy = 0;
       this.grounded = true;
-      this.hitCd = 0; this.swing = 0; this.swingX = 0; this.swingY = -1;
+      this.hitCd = 0; this.swing = 0; this.blockFx = 0;
+      this.flip = 0; this.flipT = 0; this.flipped = false; this.flipDone = false; this.flipsLanded = 0;
+      this.kick = 0; this.kickX = 0; this.kickY = -1; this.rot = 0; this.swingX = 0; this.swingY = -1;
       this.gait = this.slot * 1.3; this.lean = 0; this.crouch = 0; this.jumpCd = 0;
       this.out.fill(0);
       this.focus = null;
@@ -824,22 +841,47 @@
         this.grounded = false;
         this.crouch = 0.6;
       }
+      // Backflip: only started early in a jump, and timed to finish before touching down.
+      if(!this.grounded && !this.flipped && o[OUT_FLIP] > 0.6 && this.vy < -JUMP_V * 0.35){
+        const tl = (-this.vy + Math.sqrt(this.vy * this.vy + 2 * PLAYER_GRAVITY * Math.max(0, PELVIS_GROUND_Y - this.y))) / PLAYER_GRAVITY;
+        if(tl > 0.42){ this.flipT = Math.min(0.75, tl * 0.88); this.flip = this.flipT; this.flipped = true; }
+      }
+      if(this.flip > 0){
+        this.flip -= dt;
+        if(this.flip <= 0){ this.flip = 0; this.flipDone = true; }
+      }
+      if(this.kick > 0) this.kick -= dt;
       if(!this.grounded){
         this.vy += PLAYER_GRAVITY * dt;
         this.y += this.vy * dt;
         if(this.y >= PELVIS_GROUND_Y){
           this.y = PELVIS_GROUND_Y; this.vy = 0; this.grounded = true;
           this.jumpCd = 0.12; this.crouch = 1;
+          this.flip = 0; this.flipped = false;
         }
       }
       if(this.hitCd > 0) this.hitCd -= dt;
       if(this.swing > 0) this.swing -= dt;
+      if(this.blockFx > 0) this.blockFx -= dt;
       this.crouch = Math.max(0, this.crouch - dt * 4);
     }
 
     // Pose the rig. Code, not the brain: hands reach for the focus ball, legs walk.
     pose(dt, snap){
-      const f = this.facing, s = S, ball = this.focus;
+      const f = this.facing, s = S;
+      let ball = this.focus;
+      const flipping = this.flip > 0 && this.flipT > 0;
+      let ang = 0, pivX = 0, pivY = 0;
+      if(flipping){
+        const u = 1 - this.flip / this.flipT;
+        ang = -f * TAU * (u * u * (3 - 2 * u));           // eased full turn, head goes backwards
+        pivX = this.x; pivY = this.y - 20 * s;
+        // Work in the body's own frame: un-rotate the ball so a leg can reach it (bicycle kick).
+        if(ball){
+          const c = Math.cos(-ang), sn = Math.sin(-ang), dx = ball.x - pivX, dy = ball.y - pivY;
+          ball = {x: pivX + dx * c - dy * sn, y: pivY + dx * sn + dy * c};
+        }
+      }
       const k = snap ? 1 : 1 - Math.exp(-dt * 22);
       const kl = snap ? 1 : 1 - Math.exp(-dt * 9);
 
@@ -858,6 +900,7 @@
       // Arms: three parts (upper arm, forearm, hand)
       const shX = this.nx - d2x * 3 * s, shY = this.ny - d2y * 3 * s;
       const netEdge = this.team === 'left' ? NET_X - NET_W / 2 - 4 : NET_X + NET_W / 2 + 4;
+      const netLimit = this.team === 'left' ? NET_X - NET_W / 2 - 0.5 : NET_X + NET_W / 2 + 0.5;
       for(let i = 0; i < 2; i++){
         const arm = this.arms[i];
         const sx = shX + (i === 0 ? -2 : 2) * f * s, sy = shY + (i === 0 ? 1 : 0);
@@ -865,7 +908,9 @@
         let tx, ty;
         const bdx = ball ? ball.x - sx : 0, bdy = ball ? ball.y - sy : 0;
         const bd = Math.hypot(bdx, bdy);
-        if(this.swing > 0){
+        if(flipping){
+          tx = sx + f * (i === 0 ? 10 : 16) * s; ty = sy + (i === 0 ? 20 : 14) * s;   // arms tucked
+        } else if(this.swing > 0){
           tx = sx + this.swingX * ARM_REACH * 1.1; ty = sy + this.swingY * ARM_REACH * 1.1;
         } else if(ball && bd < ARM_REACH * 2.4 && this.hitCd <= 0.05){
           const pull = BODY.hand * s * 0.6;
@@ -878,11 +923,17 @@
         }
         if(this.team === 'left') tx = Math.min(tx, netEdge); else tx = Math.max(tx, netEdge);
         arm.tx += (tx - arm.tx) * k; arm.ty += (ty - arm.ty) * k;
-        ik2(sx, sy, arm.tx, arm.ty, BODY.upper * s, BODY.fore * s, f, arm);
-        let hdx = arm.ex - arm.mx, hdy = arm.ey - arm.my;
-        const hl = Math.hypot(hdx, hdy) || 1;
-        arm.hx = arm.ex + hdx / hl * BODY.hand * s;
-        arm.hy = arm.ey + hdy / hl * BODY.hand * s;
+        for(let tries = 0; tries < 3; tries++){
+          ik2(sx, sy, arm.tx, arm.ty, BODY.upper * s, BODY.fore * s, f, arm);
+          const hdx = arm.ex - arm.mx, hdy = arm.ey - arm.my;
+          const hl = Math.hypot(hdx, hdy) || 1;
+          arm.hx = arm.ex + hdx / hl * BODY.hand * s;
+          arm.hy = arm.ey + hdy / hl * BODY.hand * s;
+          // keep the whole hand (including its thickness) on this side of the net
+          const over = (Math.max(arm.hx * f, arm.ex * f, arm.mx * f) + R.hand * s) - netLimit * f;
+          if(over <= 0) break;
+          arm.tx -= f * (over + 0.5);
+        }
       }
 
       // Legs: three parts (thigh, shin, foot)
@@ -894,9 +945,16 @@
         const hipX = px + (i === 0 ? -3 : 3) * f * s, hipY = py + 2 * s;
         leg.sx = hipX; leg.sy = hipY;
         let tx, ty;
-        const kick = i === 1 && ball && ball.y > hipY - 10 && ball.y < FLOOR_Y - ballR &&
+        const kick = !flipping && i === 1 && ball && ball.y > hipY - 10 && ball.y < FLOOR_Y - ballR &&
           Math.hypot(ball.x - hipX, ball.y - hipY) < LEG_REACH * 1.5 && this.hitCd <= 0.05;
-        if(kick){
+        if(flipping){
+          const reachBall = i === 1 && ball && Math.hypot(ball.x - hipX, ball.y - hipY) < LEG_REACH * 1.4;
+          if(reachBall){ tx = ball.x; ty = ball.y; }
+          else if(i === 1){ tx = hipX + f * 18 * s; ty = hipY + LEG_REACH * 0.92; }
+          else { tx = hipX + f * 16 * s; ty = hipY + LEG_REACH * 0.5; }
+        } else if(this.kick > 0 && i === 1){
+          tx = hipX + this.kickX * LEG_REACH * 1.05; ty = hipY + this.kickY * LEG_REACH * 1.05;   // follow-through
+        } else if(kick){
           tx = ball.x; ty = ball.y;
         } else if(this.grounded){
           const ph = this.gait + i * Math.PI;
@@ -907,51 +965,109 @@
           tx = hipX + (i === 0 ? -8 : 12) * f * s; ty = hipY + LEG_REACH * tuck;
         }
         if(this.team === 'left') tx = Math.min(tx, netEdge); else tx = Math.max(tx, netEdge);
-        if(snap || (this.grounded && !kick)){ leg.tx = tx; leg.ty = ty; }
+        if(snap || (this.grounded && !kick && this.kick <= 0)){ leg.tx = tx; leg.ty = ty; }
         else { leg.tx += (tx - leg.tx) * k; leg.ty += (ty - leg.ty) * k; }
-        ik2(hipX, hipY, leg.tx, leg.ty, BODY.thigh * s, BODY.shin * s, -f, leg);
-        if(this.grounded && !kick){
+        for(let tries = 0; tries < 3; tries++){
+          ik2(hipX, hipY, leg.tx, leg.ty, BODY.thigh * s, BODY.shin * s, -f, leg);
+          const over = (Math.max(leg.ex * f, leg.mx * f) + BODY.foot * s + R.foot * s) - netLimit * f;
+          if(over <= 0) break;
+          leg.tx -= f * (over + 0.5);
+        }
+        if(this.grounded && !kick && this.kick <= 0){
           leg.hx = leg.ex + f * BODY.foot * s; leg.hy = leg.ey + 1;
         } else {
           leg.hx = leg.ex + f * BODY.foot * s * 0.75; leg.hy = leg.ey + BODY.foot * s * 0.6;
         }
       }
+      this.rot = l2 * f;
+      if(flipping){
+        // rotate the whole rig about the body's centre
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        const rx = (x, y)=> pivX + (x - pivX) * c - (y - pivY) * sn;
+        const ry = (x, y)=> pivY + (x - pivX) * sn + (y - pivY) * c;
+        const turn = (o, kx, ky)=>{ const x = o[kx], y = o[ky]; o[kx] = rx(x, y); o[ky] = ry(x, y); };
+        turn(this, 'px', 'py'); turn(this, 'cx', 'cy'); turn(this, 'nx', 'ny'); turn(this, 'hx', 'hy');
+        for(const j of [...this.arms, ...this.legs]){ turn(j, 'sx', 'sy'); turn(j, 'mx', 'my'); turn(j, 'ex', 'ey'); turn(j, 'hx', 'hy'); }
+        this.rot += ang;
+      }
+      this.updateSegs();
     }
 
-    // Test the rig against a ball. Returns {kind, nx, ny} or null.
-    contact(ball){
-      const s = S;
-      const r = ballR;
-      const test = (ax, ay, bx, by, rad)=>{
-        const d2 = segDist2(ball.x, ball.y, ax, ay, bx, by);
-        return d2 < (r + rad) * (r + rad) ? d2 : -1;
-      };
-      let hitKind = null, bestD = Infinity, cx = 0, cy = 0, rad = 0;
-      const consider = (kind, d2, radius)=>{
-        if(d2 >= 0 && d2 < bestD){ bestD = d2; hitKind = kind; cx = tmpPt.x; cy = tmpPt.y; rad = radius; }
-      };
-      for(const a of this.arms){
-        consider('arm', test(a.ex, a.ey, a.hx, a.hy, BODY.handR * s), BODY.handR * s);
-        consider('arm', test(a.mx, a.my, a.ex, a.ey, BODY.limbR * s), BODY.limbR * s);
+    updateSegs(){
+      const s = S, g = this.segs;
+      const set = (i, ax, ay, bx, by, r)=>{ const q = g[i]; q.ax = ax; q.ay = ay; q.bx = bx; q.by = by; q.r = r * s; };
+      for(let i = 0; i < 2; i++){
+        const a = this.arms[i], l = this.legs[i], o = i * 3;
+        set(o, a.sx, a.sy, a.mx, a.my, R.upper);
+        set(o + 1, a.mx, a.my, a.ex, a.ey, R.fore);
+        set(o + 2, a.ex, a.ey, a.hx, a.hy, R.hand);
+        set(6 + o, l.sx, l.sy, l.mx, l.my, R.thigh);
+        set(7 + o, l.mx, l.my, l.ex, l.ey, R.shin);
+        set(8 + o, l.ex, l.ey, l.hx, l.hy, R.foot);
       }
-      if(!hitKind){
-        for(const l of this.legs){
-          consider('leg', test(l.ex, l.ey, l.hx, l.hy, BODY.footR * s), BODY.footR * s);
-          consider('leg', test(l.mx, l.my, l.ex, l.ey, BODY.limbR * s), BODY.limbR * s);
+      set(12, this.px, this.py, this.nx, this.ny, R.torso);
+      set(13, this.nx, this.ny, this.hx, this.hy, R.neck);
+      set(14, this.hx, this.hy, this.hx, this.hy, R.head);
+    }
+
+    // Test every capsule against the ball. Hands and forearms win over legs, legs over body;
+    // within a group the deepest overlap wins. The ball is pushed out until it just touches.
+    contact(ball){
+      const rb = ballR;
+      let best = null, bestRank = 9, bestPen = 0, cx = 0, cy = 0;
+      for(const g of this.segs){
+        const rr = rb + g.r;
+        if(ball.x + rr < (g.ax < g.bx ? g.ax : g.bx) || ball.x - rr > (g.ax > g.bx ? g.ax : g.bx) ||
+           ball.y + rr < (g.ay < g.by ? g.ay : g.by) || ball.y - rr > (g.ay > g.by ? g.ay : g.by)) continue;
+        const d2 = segDist2(ball.x, ball.y, g.ax, g.ay, g.bx, g.by);
+        if(d2 >= rr * rr) continue;
+        const pen = rr - Math.sqrt(d2);
+        const rank = g.kind === 'arm' ? 0 : g.kind === 'leg' ? 1 : 2;
+        if(rank < bestRank || (rank === bestRank && pen > bestPen)){
+          best = g; bestRank = rank; bestPen = pen; cx = tmpPt.x; cy = tmpPt.y;
         }
       }
-      if(!hitKind){
-        consider('body', test(this.px, this.py, this.nx, this.ny, BODY.torsoR * s), BODY.torsoR * s);
-        consider('body', test(this.hx, this.hy, this.hx, this.hy, BODY.head * s), BODY.head * s);
-      }
-      if(!hitKind) return null;
+      if(!best) return null;
       let nx = ball.x - cx, ny = ball.y - cy;
       const d = Math.hypot(nx, ny);
       if(d < 1e-6){ nx = 0; ny = -1; } else { nx /= d; ny /= d; }
-      // push ball out of the limb
-      ball.x = cx + nx * (r + rad + 0.5);
-      ball.y = cy + ny * (r + rad + 0.5);
-      return {kind: hitKind, nx, ny};
+      ball.x = cx + nx * (rb + best.r + 0.25);
+      ball.y = cy + ny * (rb + best.r + 0.25);
+      this.unstick(ball);
+      return {kind: best.kind, part: best.part, nx, ny, px: cx + nx * best.r, py: cy + ny * best.r};
+    }
+
+    // Push the ball out of any other capsule it still overlaps (e.g. hand and forearm at once).
+    unstick(ball){
+      for(let iter = 0; iter < 3; iter++){
+        let moved = false;
+        for(const g of this.segs){
+          const rr = ballR + g.r;
+          const d2 = segDist2(ball.x, ball.y, g.ax, g.ay, g.bx, g.by);
+          if(d2 >= rr * rr) continue;
+          let nx = ball.x - tmpPt.x, ny = ball.y - tmpPt.y;
+          const d = Math.sqrt(d2);
+          if(d < 1e-6){ nx = 0; ny = -1; } else { nx /= d; ny /= d; }
+          ball.x = tmpPt.x + nx * (rr + 0.25);
+          ball.y = tmpPt.y + ny * (rr + 0.25);
+          moved = true;
+        }
+        if(!moved) return;
+      }
+      // Still pinned (e.g. squeezed between a hand and a foot): slide it straight out from the body.
+      let dx = ball.x - this.x, dy = ball.y - (this.y - 20 * S);
+      const d = Math.hypot(dx, dy) || 1;
+      dx /= d; dy /= d;
+      for(let step = 0; step < 60 && this.overlaps(ball); step++){ ball.x += dx * 1.5; ball.y += dy * 1.5; }
+      const out = ball.vx * dx + ball.vy * dy;
+      if(out < 80){ ball.vx += dx * (80 - out); ball.vy += dy * (80 - out); }
+    }
+    overlaps(ball){
+      for(const g of this.segs){
+        const rr = ballR + g.r;
+        if(segDist2(ball.x, ball.y, g.ax, g.ay, g.bx, g.by) < rr * rr - 0.01) return true;
+      }
+      return false;
     }
   }
 
@@ -1035,6 +1151,9 @@
       this.fx = [];      // particles + floating text, display only
       this.marks = [];   // floor impact rings
       this.vizValues = null;
+      this.hype = 0.15;        // crowd excitement, display only
+      this.cheer = null;       // side whose fans are celebrating a point
+      this.hits = [];          // recent contact points (hitbox overlay)
       this.pendingBrain = null;
       this.startServe();
     }
@@ -1080,6 +1199,8 @@
     }
     pointTo(team){
       this.stats.points[team]++;
+      this.hype = Math.min(1, this.hype + 0.45);
+      this.cheer = {team, life: 2.2};
       if(this.mode === 'competition') this.fitness += team === 'left' ? C_POINT_WIN : C_POINT_LOSS;
     }
 
@@ -1153,7 +1274,8 @@
         if(hit.kind === 'leg') speed *= 0.8;
         ball.vx = dx / dl * speed + p.vx * 0.15;
         ball.vy = dy / dl * speed + p.vy * 0.1;
-        p.swing = 0.16; p.swingX = dx / dl; p.swingY = dy / dl;
+        if(hit.kind === 'leg'){ p.kick = 0.2; p.kickX = dx / dl; p.kickY = dy / dl; }
+        else { p.swing = 0.16; p.swingX = dx / dl; p.swingY = dy / dl; }
       }
       ball.spin = clamp(ball.vx * 0.012 + (Math.random() - 0.5) * 4, -14, 14);
       p.hitCd = HIT_COOLDOWN;
@@ -1185,8 +1307,11 @@
         const col = team === 'left' ? '#7fb6ff' : '#ffa47a';
         for(let i = 0; i < 9; i++){
           const a = Math.random() * TAU, v = rand(60, 220);
-          this.fx.push({kind: 'spark', x: ball.x, y: ball.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.45, max: 0.45, col});
+          this.fx.push({kind: 'spark', x: hit.px, y: hit.py, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.45, max: 0.45, col});
         }
+        this.fx.push({kind: 'ring', x: hit.px, y: hit.py, life: 0.3, max: 0.3, col});
+        if(hit.kind === 'leg') this.fx.push({kind: 'text', x: ball.x, y: ball.y - 30, vy: -40, life: 0.9, max: 0.9, text: p.flip > 0 ? 'Bicycle kick!' : 'Kick!', col: '#ffd479'});
+        if(hit.kind === 'leg' && p.flip > 0) this.hype = Math.min(1, this.hype + 0.35);
         if(pass) this.fx.push({kind: 'text', x: ball.x, y: ball.y - 30, vy: -40, life: 0.9, max: 0.9, text: 'Pass', col});
       }
 
@@ -1223,6 +1348,15 @@
         }
         p.control(dt);
       }
+      for(const p of this.players){
+        if(!p.flipDone) continue;
+        p.flipDone = false;
+        if(p.flipsLanded++ < FLIPS_REWARDED) this.reward(p.team, R_FLIP);
+        if(this.display){
+          this.fx.push({kind: 'text', x: p.x, y: p.y - 110 * S, vy: -30, life: 0.8, max: 0.8, text: 'Flip!', col: '#c9b6ff'});
+          this.hype = Math.min(1, this.hype + 0.08);
+        }
+      }
       this.separate(this.teams.left);
       this.separate(this.teams.right);
       for(const p of this.players) p.pose(dt, false);
@@ -1232,14 +1366,33 @@
         ball.update(dt);
         if(ball.collideNet()) this.reward(ball.lastTeam || sideOf(ball.x), R_NET_CLIP);
 
-        // Contacts: first player whose rig touches the ball wins this step.
-        let over = false;
+        // Contacts. One real touch per ball per step; any other overlap (a player still in
+        // their hit cooldown, or a hand meeting a ball on the far side of the net = a block)
+        // deflects the ball physically and never lets it pass through a limb.
+        let over = false, struck = false;
         for(const p of this.players){
-          if(p.hitCd > 0 || sideOf(ball.x) !== p.team) continue;   // no reaching over the net
           const hit = p.contact(ball);
-          if(hit){ over = this.onTouch(p, ball, hit); break; }
+          if(!hit) continue;
+          if(!struck && p.hitCd <= 0 && sideOf(ball.x) === p.team){
+            struck = true;
+            over = this.onTouch(p, ball, hit);
+            if(over) break;
+          } else {
+            const dot = ball.vx * hit.nx + ball.vy * hit.ny;
+            if(dot < 0){ ball.vx -= 1.55 * dot * hit.nx; ball.vy -= 1.55 * dot * hit.ny; }
+            if(this.display && sideOf(ball.x) !== p.team && hit.kind === 'arm' && p.blockFx <= 0){
+              this.fx.push({kind: 'text', x: hit.px, y: hit.py - 30, vy: -30, life: 0.8, max: 0.8, text: 'Block', col: '#ffd479'});
+              p.blockFx = 0.6;
+            }
+          }
+          if(this.display) this.hits.push({x: hit.px, y: hit.py, life: 0.6, part: hit.part});
         }
-        if(over){ this.endServe(); return; }
+        if(over){ this.clearBall(ball); this.endServe(); return; }
+        // Final pass: a ball pushed out of one player may now sit in a limb processed earlier.
+        for(let pass = 0; pass < 2; pass++){
+          for(const p of this.players) if(Math.abs(ball.x - p.x) < 170 * S) p.unstick(ball);
+        }
+        this.escape(ball);
 
         if(this.display){
           ball.trail.push(ball.x, ball.y);
@@ -1253,6 +1406,7 @@
           if(ball.lastTeam === prevSide && !ball.crossed){
             this.stats.crossings++;
             this.rallyCrossings++;
+            this.hype = Math.min(1, this.hype + 0.12 + Math.min(0.2, this.rallyCrossings * 0.02));
             // Full credit only for a real arc over the net; taps along the tape earn little.
             const arc = ball.apexY + ballR < NET_TOP - ARC_HEIGHT ? 1 : 0.05;
             const pace = Math.min(1, (this.rally - this.lastCross) / 1.2);
@@ -1268,6 +1422,7 @@
 
         if(ball.y + ballR >= FLOOR_Y){
           ball.y = FLOOR_Y - ballR;
+          this.clearBall(ball);
           const landed = sideOf(ball.x);
           this.pointTo(other(landed));
           this.endServe(ball.x);
@@ -1290,6 +1445,35 @@
 
       this.rally += dt;
       if(this.rally >= SERVE_TIMEOUT) this.endServe();
+    }
+
+    // Make sure a ball that stays on screen (fault, landing) is not drawn inside a limb.
+    clearBall(ball){
+      for(let pass = 0; pass < 2; pass++) for(const p of this.players) p.unstick(ball);
+      this.escape(ball);
+    }
+
+    // Last resort when the ball is squeezed between limbs or players: move it the shortest
+    // distance (of eight directions) that leaves it touching nothing, and send it that way.
+    escape(ball){
+      if(!this.players.some((p)=> p.overlaps(ball))) return;
+      const x0 = ball.x, y0 = ball.y;
+      let best = null;
+      for(let k = 0; k < 8; k++){
+        const a = -Math.PI / 2 + k * Math.PI / 4;
+        const dx = Math.cos(a), dy = Math.sin(a);
+        for(let d = 1.5; d < 260; d += 1.5){
+          const x = x0 + dx * d, y = y0 + dy * d;
+          if(x < WALL_L + ballR || x > WALL_R - ballR || y < CEILING_Y + ballR || y > FLOOR_Y - ballR) break;
+          if(best && d >= best.d) break;
+          ball.x = x; ball.y = y;
+          if(!this.players.some((p)=> p.overlaps(ball))){ best = {d, dx, dy}; break; }
+        }
+      }
+      if(!best){ ball.x = x0; ball.y = Math.max(CEILING_Y + ballR, y0 - 200); return; }
+      ball.x = x0 + best.dx * best.d; ball.y = y0 + best.dy * best.d;
+      const out = ball.vx * best.dx + ball.vy * best.dy;
+      if(out < 120){ ball.vx += best.dx * (120 - out); ball.vy += best.dy * (120 - out); }
     }
 
     // Teammates are solid: they cannot stand inside each other.
@@ -1322,6 +1506,10 @@
       this.fx = this.fx.filter((e)=> e.life > 0);
       if(this.fx.length > 220) this.fx.splice(0, this.fx.length - 220);
       for(const m of this.marks) m.life -= dt * 1.2;
+      for(const h of this.hits) h.life -= dt;
+      this.hits = this.hits.filter((h)=> h.life > 0);
+      this.hype = Math.max(0.1, this.hype - dt * 0.12);
+      if(this.cheer && (this.cheer.life -= dt) <= 0) this.cheer = null;
       this.marks = this.marks.filter((m)=> m.life > 0);
     }
   }
@@ -1443,167 +1631,333 @@
   // =====================================================================
   const COLORS = {
     left: {main: '#3987e5', dark: '#22579e', light: '#9cc4f5'},
-    right: {main: '#d95926', dark: '#953a17', light: '#f3b08f'},
-    skin: '#d9e0f2', skinBack: '#8e98b8', joint: '#5b6585', shoe: '#f5f7ff'
+    right: {main: '#d95926', dark: '#953a17', light: '#f3b08f'}
   };
+  const SKINS = [['#f2cfae', '#c49c7a'], ['#d9a277', '#a87850'], ['#a8704a', '#7a4f32'], ['#6f4630', '#4b2e1e']];
+  const HAIRS = ['#2a1b12', '#5b3a22', '#c99a52', '#151515', '#7a3b1f', '#e2c58c'];
+  function appearance(team, slot){
+    const h = (team === 'left' ? 0 : 5) + slot * 3;
+    const skin = SKINS[(h + slot * 2) % SKINS.length];
+    return {skin: skin[0], skinDark: skin[1], hair: HAIRS[(h * 5 + 1) % HAIRS.length], style: (h + slot) % 3, band: slot % 2 === 0};
+  }
+  function shade(hex, f){
+    const n = parseInt(hex.slice(1), 16);
+    const c = (v)=> Math.round(clamp(v * f, 0, 255));
+    return `rgb(${c((n >> 16) & 255)},${c((n >> 8) & 255)},${c(n & 255)})`;
+  }
+
+  // Arena layout (static layers are cached; only the crowd, LED text, scoreboard and play move)
+  const STANDS_TOP = 104, STANDS_BOTTOM = 330, CROWD_Y0 = STANDS_TOP - 34;
+  const LED_TOP = FLOOR_Y - 34, LED_BOT = FLOOR_Y - 8;
+  const NET_BOT = NET_TOP + 98;       // bottom tape of the mesh; below it the padded post continues
+  const CROWD_SLICES = 40;
   let viewScale = 1;
   const bgCanvas = document.createElement('canvas');
+  const crowdA = document.createElement('canvas');
+  const crowdB = document.createElement('canvas');
+  const midCanvas = document.createElement('canvas');
+  const courtCanvas = document.createElement('canvas');
+  const MID_Y0 = STANDS_BOTTOM - 4, COURT_Y0 = NET_TOP - 4;
 
   function resizeCanvas(){
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const k = clamp((rect.width || FIELD_W) * dpr / FIELD_W, 0.5, 2);
     const w = Math.round(FIELD_W * k), h = Math.round(FIELD_H * k);
-    if(canvas.width !== w || canvas.height !== h){
-      canvas.width = w; canvas.height = h;
-    }
+    if(canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
     viewScale = k;
-    buildBackground();
+    buildLayers();
+  }
+  function layer(cv, y0, y1){
+    cv.width = canvas.width;
+    cv.height = Math.max(1, Math.round((y1 - y0) * viewScale));
+    const g = cv.getContext('2d');
+    g.setTransform(viewScale, 0, 0, viewScale, 0, -y0 * viewScale);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    return g;
   }
 
-  // Everything static is drawn once into an offscreen canvas.
-  function buildBackground(){
-    bgCanvas.width = canvas.width; bgCanvas.height = canvas.height;
-    const g = bgCanvas.getContext('2d');
-    g.setTransform(viewScale, 0, 0, viewScale, 0, 0);
-    const sky = g.createLinearGradient(0, 0, 0, FLOOR_Y);
-    sky.addColorStop(0, '#0d1638');
-    sky.addColorStop(1, '#070c22');
-    g.fillStyle = sky;
-    g.fillRect(0, 0, FIELD_W, FIELD_H);
-    // arena lights
-    [[260, -40, 'rgba(57,135,229,0.16)'], [FIELD_W - 260, -40, 'rgba(217,89,38,0.13)'], [NET_X, -80, 'rgba(200,210,255,0.08)']].forEach(([x, y, c])=>{
-      const rg = g.createRadialGradient(x, y, 10, x, y, 520);
-      rg.addColorStop(0, c); rg.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = rg; g.fillRect(0, 0, FIELD_W, FLOOR_Y);
+  function buildLayers(){
+    // --- arena: ceiling, lights, stand tiers ---
+    const g = layer(bgCanvas, 0, FIELD_H);
+    const sky = g.createLinearGradient(0, 0, 0, STANDS_BOTTOM);
+    sky.addColorStop(0, '#0a1230'); sky.addColorStop(1, '#0d1638');
+    g.fillStyle = sky; g.fillRect(0, 0, FIELD_W, FIELD_H);
+    g.fillStyle = '#060a1e'; g.fillRect(0, 0, FIELD_W, 26);
+    g.strokeStyle = 'rgba(160,175,220,0.18)'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, 30); g.lineTo(FIELD_W, 30); g.stroke();
+    for(let x = 0; x < FIELD_W; x += 40){ g.beginPath(); g.moveTo(x, 26); g.lineTo(x + 20, 34); g.lineTo(x + 40, 26); g.stroke(); }
+    g.globalCompositeOperation = 'lighter';
+    [150, 400, 880, 1130].forEach((x)=>{
+      const cone = g.createLinearGradient(0, 30, 0, STANDS_BOTTOM + 40);
+      cone.addColorStop(0, 'rgba(210,225,255,0.10)'); cone.addColorStop(1, 'rgba(210,225,255,0)');
+      g.fillStyle = cone;
+      g.beginPath(); g.moveTo(x - 14, 34); g.lineTo(x + 14, 34); g.lineTo(x + 120, STANDS_BOTTOM + 40); g.lineTo(x - 120, STANDS_BOTTOM + 40); g.closePath(); g.fill();
     });
-    // stands silhouette
-    g.fillStyle = 'rgba(255,255,255,0.025)';
-    for(let row = 0; row < 3; row++){
-      const y = 150 + row * 34;
-      for(let x = 40 + (row % 2) * 14; x < FIELD_W - 30; x += 28){
-        g.beginPath(); g.arc(x, y, 7, 0, TAU); g.fill();
+    g.globalCompositeOperation = 'source-over';
+    [150, 400, 880, 1130].forEach((x)=>{
+      g.fillStyle = '#1b2348'; g.fillRect(x - 18, 28, 36, 8);
+      g.fillStyle = '#f4f7ff'; g.fillRect(x - 13, 34, 26, 3);
+    });
+    for(let row = 0; row < 5; row++){
+      const y = STANDS_BOTTOM - 8 - row * 40;
+      g.fillStyle = row % 2 ? '#121a40' : '#101737';
+      g.fillRect(0, y - 40, FIELD_W, 40);
+      g.fillStyle = 'rgba(255,255,255,0.04)'; g.fillRect(0, y - 2, FIELD_W, 2);
+    }
+    for(const x of [NET_X - 2, 40, FIELD_W - 44]){ g.fillStyle = '#0a0f28'; g.fillRect(x, STANDS_TOP - 30, 4, STANDS_BOTTOM - STANDS_TOP + 30); }
+
+    // --- crowd, two poses: seated and on their feet with arms up ---
+    const rng = mulberry32(7);
+    const fans = [];
+    for(let row = 4; row >= 0; row--){
+      const sc = 1 - row * 0.07;
+      const y = STANDS_BOTTOM - 8 - row * 40;
+      for(let x = 30 + rng() * 10; x < FIELD_W - 20; x += 25 * sc + rng() * 6){
+        if(Math.abs(x - NET_X) < 10 || x < 50 && x > 36 || Math.abs(x - (FIELD_W - 42)) < 8) continue;
+        if(rng() < 0.07) continue;   // empty seat
+        const side = x < NET_X ? 'left' : 'right';
+        const fanOf = rng() < 0.62 ? side : (rng() < 0.5 ? 'none' : other(side));
+        const neutral = ['#cfd6ea', '#6d7795', '#2b3150', '#e8e2d0', '#8d5fd3', '#3c9f8a'];
+        const shirt = fanOf === 'none' ? neutral[Math.floor(rng() * neutral.length)] : (rng() < 0.7 ? COLORS[fanOf].main : COLORS[fanOf].light);
+        const sk = SKINS[Math.floor(rng() * SKINS.length)][0];
+        const hair = HAIRS[Math.floor(rng() * HAIRS.length)];
+        fans.push({x, y, sc, row, shirt, sk, hair, fanOf, flag: fanOf !== 'none' && rng() < 0.22, lean: (rng() - 0.5) * 0.2});
       }
     }
-    // floor
-    const fl = g.createLinearGradient(0, FLOOR_Y, 0, FIELD_H);
-    fl.addColorStop(0, '#1d2752'); fl.addColorStop(1, '#0a0f27');
-    g.fillStyle = fl;
-    g.fillRect(0, FLOOR_Y, FIELD_W, FIELD_H - FLOOR_Y);
-    g.fillStyle = 'rgba(57,135,229,0.10)';
-    g.fillRect(WALL_L, FLOOR_Y, NET_X - WALL_L, FIELD_H - FLOOR_Y);
-    g.fillStyle = 'rgba(217,89,38,0.09)';
-    g.fillRect(NET_X, FLOOR_Y, WALL_R - NET_X, FIELD_H - FLOOR_Y);
-    // floor boards
-    g.strokeStyle = 'rgba(255,255,255,0.04)'; g.lineWidth = 1;
-    for(let y = FLOOR_Y + 14; y < FIELD_H; y += 14){
-      g.beginPath(); g.moveTo(0, y); g.lineTo(FIELD_W, y); g.stroke();
+    for(const [cv, up] of [[crowdA, false], [crowdB, true]]){
+      const c = layer(cv, CROWD_Y0, STANDS_BOTTOM + 6);
+      for(const f of fans){
+        const dim = 0.54 - f.row * 0.06;
+        const s = f.sc, x = f.x, base = f.y - (up ? 7 * s : 0);
+        const shirt = shade(f.shirt.startsWith('#') ? f.shirt : '#888888', dim);
+        const skin = shade(f.sk, dim), hair = shade(f.hair, dim);
+        const shY = base - 22 * s;
+        if(up){
+          c.strokeStyle = skin; c.lineWidth = 3.4 * s;
+          c.beginPath(); c.moveTo(x - 6 * s, shY); c.lineTo(x - 10 * s, shY - 17 * s); c.stroke();
+          c.beginPath(); c.moveTo(x + 6 * s, shY); c.lineTo(x + 10 * s + f.lean * 20, shY - 17 * s); c.stroke();
+          if(f.flag){
+            const col = shade(COLORS[f.fanOf].main, dim + 0.25);
+            c.strokeStyle = shade('#cccccc', dim); c.lineWidth = 1.2;
+            c.beginPath(); c.moveTo(x + 10 * s, shY - 15 * s); c.lineTo(x + 10 * s, shY - 34 * s); c.stroke();
+            c.fillStyle = col; c.fillRect(x + 10 * s, shY - 34 * s, 13 * s, 8 * s);
+          }
+        }
+        c.fillStyle = shirt;
+        c.beginPath(); c.moveTo(x - 9 * s, base); c.lineTo(x - 8 * s, shY); c.quadraticCurveTo(x, shY - 4 * s, x + 8 * s, shY); c.lineTo(x + 9 * s, base); c.closePath(); c.fill();
+        if(!up){
+          c.strokeStyle = shirt; c.lineWidth = 3.4 * s;
+          c.beginPath(); c.moveTo(x - 7 * s, shY + 2 * s); c.lineTo(x - 9 * s, base - 2 * s); c.stroke();
+          c.beginPath(); c.moveTo(x + 7 * s, shY + 2 * s); c.lineTo(x + 9 * s, base - 2 * s); c.stroke();
+        }
+        c.fillStyle = skin; c.beginPath(); c.arc(x, shY - 8 * s, 6.5 * s, 0, TAU); c.fill();
+        c.fillStyle = hair; c.beginPath(); c.arc(x, shY - 9.5 * s, 6.5 * s, Math.PI * 1.05, Math.PI * 1.95); c.fill();
+        if(up){ c.fillStyle = shade('#1a1010', dim + 0.2); c.beginPath(); c.arc(x, shY - 6 * s, 1.6 * s, 0, TAU); c.fill(); }
+      }
     }
-    g.strokeStyle = 'rgba(230,236,255,0.55)'; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(WALL_L, FLOOR_Y); g.lineTo(WALL_R, FLOOR_Y); g.stroke();
-    // attack lines
-    g.strokeStyle = 'rgba(230,236,255,0.18)';
-    [NET_X - 200, NET_X + 200].forEach((x)=>{ g.beginPath(); g.moveTo(x, FLOOR_Y); g.lineTo(x, FIELD_H); g.stroke(); });
-    // side walls & ceiling
-    g.strokeStyle = 'rgba(148,163,209,0.25)'; g.lineWidth = 2;
-    g.strokeRect(WALL_L, CEILING_Y, WALL_R - WALL_L, FLOOR_Y - CEILING_Y);
-    // net post
-    g.fillStyle = '#c9d2ee';
-    g.fillRect(NET_X - 3, NET_TOP - 12, 6, FLOOR_Y - NET_TOP + 12);
-    // net mesh: denser near the tape, fading toward the floor
-    const meshH = FLOOR_Y - NET_TOP;
-    g.save();
-    g.beginPath(); g.rect(NET_X - NET_W / 2 - 1, NET_TOP, NET_W + 2, meshH); g.clip();
-    for(let y = NET_TOP; y < FLOOR_Y; y += 8){
-      g.strokeStyle = `rgba(220,228,255,${0.5 * (1 - (y - NET_TOP) / meshH) + 0.06})`;
-      g.lineWidth = 1;
-      g.beginPath(); g.moveTo(NET_X - NET_W, y); g.lineTo(NET_X + NET_W, y + 8); g.stroke();
-      g.beginPath(); g.moveTo(NET_X + NET_W, y); g.lineTo(NET_X - NET_W, y + 8); g.stroke();
+
+    // --- balcony barrier, arena wall and LED board frame ---
+    const m = layer(midCanvas, MID_Y0, FLOOR_Y + 2);
+    const wall = m.createLinearGradient(0, STANDS_BOTTOM, 0, FLOOR_Y);
+    wall.addColorStop(0, '#0c1334'); wall.addColorStop(1, '#070b22');
+    m.fillStyle = wall; m.fillRect(0, STANDS_BOTTOM + 18, FIELD_W, FLOOR_Y - STANDS_BOTTOM - 18);
+    m.fillStyle = 'rgba(255,255,255,0.025)';
+    for(let x = 0; x < FIELD_W; x += 80) m.fillRect(x, STANDS_BOTTOM + 18, 1, LED_TOP - STANDS_BOTTOM - 18);
+    m.fillStyle = '#141c44'; m.fillRect(0, STANDS_BOTTOM - 4, FIELD_W, 22);
+    m.fillStyle = COLORS.left.dark; m.fillRect(0, STANDS_BOTTOM + 2, NET_X, 12);
+    m.fillStyle = COLORS.right.dark; m.fillRect(NET_X, STANDS_BOTTOM + 2, NET_X, 12);
+    m.fillStyle = 'rgba(220,230,255,0.55)'; m.fillRect(0, STANDS_BOTTOM - 4, FIELD_W, 2);
+    m.font = '800 10px Inter, system-ui, sans-serif'; m.textBaseline = 'middle'; m.textAlign = 'center';
+    m.fillStyle = 'rgba(255,255,255,0.75)';
+    for(let x = 90; x < NET_X; x += 180) m.fillText('GO BLUE', x, STANDS_BOTTOM + 8);
+    for(let x = NET_X + 90; x < FIELD_W; x += 180) m.fillText('GO ORANGE', x, STANDS_BOTTOM + 8);
+    m.fillStyle = '#05081a'; m.fillRect(0, LED_TOP - 3, FIELD_W, LED_BOT - LED_TOP + 6);
+    m.fillStyle = '#0b1030'; m.fillRect(0, LED_TOP, FIELD_W, LED_BOT - LED_TOP);
+    m.fillStyle = 'rgba(0,0,0,0.5)';
+    for(let x = 0; x < FIELD_W; x += 160) m.fillRect(x, LED_TOP, 2, LED_BOT - LED_TOP);
+
+    // --- court floor and net ---
+    const f = layer(courtCanvas, COURT_Y0, FIELD_H);
+    const fl = f.createLinearGradient(0, FLOOR_Y, 0, FIELD_H);
+    fl.addColorStop(0, '#2a3166'); fl.addColorStop(1, '#0e1330');
+    f.fillStyle = fl; f.fillRect(0, FLOOR_Y, FIELD_W, FIELD_H - FLOOR_Y);
+    f.fillStyle = 'rgba(57,135,229,0.16)'; f.fillRect(WALL_L, FLOOR_Y, NET_X - WALL_L, FIELD_H - FLOOR_Y);
+    f.fillStyle = 'rgba(217,89,38,0.14)'; f.fillRect(NET_X, FLOOR_Y, WALL_R - NET_X, FIELD_H - FLOOR_Y);
+    const prng = mulberry32(3);
+    for(let y = FLOOR_Y + 6, i = 0; y < FIELD_H; y += 9 + i, i++){
+      f.strokeStyle = 'rgba(0,0,0,0.18)'; f.lineWidth = 1;
+      f.beginPath(); f.moveTo(0, y); f.lineTo(FIELD_W, y); f.stroke();
+      for(let x = prng() * 200; x < FIELD_W; x += 140 + prng() * 160){
+        f.beginPath(); f.moveTo(x, y); f.lineTo(x, y - 7 - i); f.stroke();
+      }
     }
-    g.restore();
-    // tape
-    g.fillStyle = '#f2f5ff';
-    g.fillRect(NET_X - NET_W / 2 - 2, NET_TOP - 4, NET_W + 4, 8);
+    f.globalCompositeOperation = 'lighter';
+    [150, 400, 880, 1130].forEach((x)=>{
+      const pool = f.createRadialGradient(x, FLOOR_Y + 14, 4, x, FLOOR_Y + 14, 150);
+      pool.addColorStop(0, 'rgba(200,215,255,0.10)'); pool.addColorStop(1, 'rgba(200,215,255,0)');
+      f.fillStyle = pool; f.fillRect(x - 160, FLOOR_Y, 320, FIELD_H - FLOOR_Y);
+    });
+    f.globalCompositeOperation = 'source-over';
+    f.fillStyle = 'rgba(240,244,255,0.85)'; f.fillRect(WALL_L, FLOOR_Y, WALL_R - WALL_L, 2.5);
+    f.fillStyle = 'rgba(240,244,255,0.35)';
+    for(const x of [NET_X - 200, NET_X + 200]) f.fillRect(x - 1, FLOOR_Y, 2, FIELD_H - FLOOR_Y);
+    for(const x of [WALL_L, WALL_R]) f.fillRect(x - 1.5, FLOOR_Y, 3, FIELD_H - FLOOR_Y);
+    // net shadow on the floor
+    f.fillStyle = 'rgba(0,0,0,0.35)'; f.beginPath(); f.ellipse(NET_X, FLOOR_Y + 4, 30, 5, 0, 0, TAU); f.fill();
+    // padded post: occupies exactly the physical net column below the mesh
+    const L = NET_X - NET_W / 2;
+    const pad = f.createLinearGradient(L, 0, L + NET_W, 0);
+    pad.addColorStop(0, '#1b2a63'); pad.addColorStop(0.45, '#3c55b0'); pad.addColorStop(1, '#141f4c');
+    f.fillStyle = pad; f.fillRect(L, NET_BOT, NET_W, FLOOR_Y - NET_BOT);
+    f.fillStyle = 'rgba(255,255,255,0.8)';
+    for(let y = NET_BOT + 20; y < FLOOR_Y - 10; y += 34) f.fillRect(L, y, NET_W, 4);
+    f.fillStyle = '#9aa4c6'; f.fillRect(L - 6, FLOOR_Y - 3, NET_W + 12, 4);
+    // mesh: fine diamond grid inside the net column
+    f.save();
+    f.beginPath(); f.rect(L, NET_TOP, NET_W, NET_BOT - NET_TOP); f.clip();
+    f.fillStyle = 'rgba(10,14,36,0.55)'; f.fillRect(L, NET_TOP, NET_W, NET_BOT - NET_TOP);
+    f.strokeStyle = 'rgba(225,232,255,0.55)'; f.lineWidth = 0.7;
+    for(let y = NET_TOP - 10; y < NET_BOT + 10; y += 5){
+      f.beginPath(); f.moveTo(L, y); f.lineTo(L + NET_W, y + 5); f.stroke();
+      f.beginPath(); f.moveTo(L + NET_W, y); f.lineTo(L, y + 5); f.stroke();
+    }
+    f.restore();
+    f.fillStyle = 'rgba(225,232,255,0.7)';
+    f.fillRect(L, NET_TOP, 1.2, NET_BOT - NET_TOP); f.fillRect(L + NET_W - 1.2, NET_TOP, 1.2, NET_BOT - NET_TOP);
+    // tapes: the top edge of the white tape is exactly the physical top of the net
+    f.fillStyle = '#f5f7ff'; f.fillRect(L, NET_TOP, NET_W, 7);
+    f.fillStyle = 'rgba(0,0,0,0.18)'; f.fillRect(L, NET_TOP + 5.5, NET_W, 1.5);
+    f.fillStyle = '#e8ecfa'; f.fillRect(L, NET_BOT - 5, NET_W, 5);
   }
 
-  function capsule(ax, ay, bx, by, w, col){
-    ctx.strokeStyle = col;
-    ctx.lineWidth = w;
+  // ---------- body drawing (every width is 2 × the collision radius of that part) ----------
+  function seg(ax, ay, bx, by, r, col){
+    ctx.strokeStyle = col; ctx.lineWidth = 2 * r;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+  function partial(ax, ay, bx, by, t0, t1, r, col){
+    seg(lerp(ax, bx, t0), lerp(ay, by, t0), lerp(ax, bx, t1), lerp(ay, by, t1), r, col);
   }
   function dot(x, y, r, col){
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
   }
 
-  function drawLeg(leg, back, team, s){
-    const skin = back ? COLORS.skinBack : COLORS.skin;
-    const shorts = back ? team.dark : team.main;
-    // thigh: shorts over the top half
-    const midX = lerp(leg.sx, leg.mx, 0.5), midY = lerp(leg.sy, leg.my, 0.5);
-    capsule(leg.sx, leg.sy, leg.mx, leg.my, 11 * s, skin);
-    capsule(leg.sx, leg.sy, midX, midY, 13 * s, shorts);
-    capsule(leg.mx, leg.my, leg.ex, leg.ey, 8.5 * s, skin);       // shin
-    capsule(leg.ex, leg.ey, leg.hx, leg.hy, 7 * s, back ? '#b8bfd6' : COLORS.shoe);  // foot / shoe
-    dot(leg.mx, leg.my, 3 * s, COLORS.joint);                      // knee
-    dot(leg.ex, leg.ey, 2.4 * s, COLORS.joint);                    // ankle
+  function drawLeg(p, i, back){
+    const s = S, g = p.segs, team = COLORS[p.team], app = p.app;
+    const th = g[6 + i * 3], sh = g[7 + i * 3], ft = g[8 + i * 3];
+    const skin = back ? app.skinDark : app.skin;
+    seg(th.ax, th.ay, th.bx, th.by, th.r * 0.9, skin);                              // thigh
+    partial(th.ax, th.ay, th.bx, th.by, 0, 0.55, th.r, back ? shade(team.dark, 0.8) : team.dark);   // shorts
+    seg(sh.ax, sh.ay, sh.bx, sh.by, sh.r, skin);                                     // shin
+    partial(sh.ax, sh.ay, sh.bx, sh.by, 0.62, 1, sh.r, back ? '#b7bed3' : '#f1f3fa'); // sock
+    dot(th.bx, th.by, th.r * 0.95, back ? '#161b33' : '#232a4a');                    // knee pad
+    dot(th.bx - 1, th.by - 1.5, th.r * 0.35, 'rgba(255,255,255,0.15)');
+    seg(ft.ax, ft.ay, ft.bx, ft.by, ft.r, back ? '#c3c9dc' : '#ffffff');             // shoe
+    partial(ft.ax, ft.ay, ft.bx, ft.by, 0.2, 0.75, ft.r * 0.38, back ? shade(team.main, 0.7) : team.main);
   }
-  function drawArm(arm, back, team, s, glow){
-    const skin = back ? COLORS.skinBack : COLORS.skin;
-    capsule(arm.sx, arm.sy, arm.mx, arm.my, 8.5 * s, skin);         // upper arm
-    capsule(arm.sx, arm.sy, lerp(arm.sx, arm.mx, 0.4), lerp(arm.sy, arm.my, 0.4), 10 * s, back ? team.dark : team.main); // sleeve
-    capsule(arm.mx, arm.my, arm.ex, arm.ey, 7 * s, skin);           // forearm
-    capsule(arm.ex, arm.ey, arm.hx, arm.hy, 7.5 * s, skin);         // hand
-    if(glow){
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.beginPath(); ctx.arc(arm.hx, arm.hy, 9 * s, 0, TAU); ctx.fill();
+  function drawArm(p, i, back){
+    const s = S, g = p.segs, team = COLORS[p.team], app = p.app;
+    const up = g[i * 3], fo = g[i * 3 + 1], ha = g[i * 3 + 2];
+    const skin = back ? app.skinDark : app.skin;
+    seg(up.ax, up.ay, up.bx, up.by, up.r * 0.9, skin);                                // upper arm
+    partial(up.ax, up.ay, up.bx, up.by, 0, 0.45, up.r, back ? team.dark : team.main);  // sleeve
+    seg(fo.ax, fo.ay, fo.bx, fo.by, fo.r, skin);                                       // forearm
+    partial(fo.ax, fo.ay, fo.bx, fo.by, 0.72, 1, fo.r, back ? shade(team.light, 0.7) : team.light); // wristband
+    seg(ha.ax, ha.ay, ha.bx, ha.by, ha.r, skin);                                       // hand
+    // fingers and thumb, kept inside the hand capsule
+    const dx = ha.bx - ha.ax, dy = ha.by - ha.ay, len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+    ctx.strokeStyle = back ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.18)'; ctx.lineWidth = 0.8;
+    for(const o of [-0.35, 0.35]){
+      ctx.beginPath();
+      ctx.moveTo(ha.ax + ux * len * 0.45 + nx * ha.r * o, ha.ay + uy * len * 0.45 + ny * ha.r * o);
+      ctx.lineTo(ha.bx + nx * ha.r * o * 0.8, ha.by + ny * ha.r * o * 0.8);
+      ctx.stroke();
     }
-    dot(arm.mx, arm.my, 2.6 * s, COLORS.joint);                     // elbow
-    dot(arm.ex, arm.ey, 2.2 * s, COLORS.joint);                     // wrist
+    dot(ha.ax + ux * len * 0.25 + nx * ha.r * 0.5, ha.ay + uy * len * 0.25 + ny * ha.r * 0.5, ha.r * 0.42, back ? app.skinDark : shade(app.skin, 0.92));
+    if(p.swing > 0 && !back){ ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.beginPath(); ctx.arc(ha.bx, ha.by, ha.r + 3, 0, TAU); ctx.fill(); }
   }
-
-  function drawPlayer(p){
-    const s = S, team = COLORS[p.team], f = p.facing;
-    // shadow
-    const h = Math.max(0, PELVIS_GROUND_Y - p.y);
-    const sw = 30 * s * (1 - Math.min(0.6, h / 260));
-    ctx.fillStyle = `rgba(0,0,0,${0.35 - Math.min(0.2, h / 900)})`;
-    ctx.beginPath(); ctx.ellipse(p.x, FLOOR_Y + 3, sw, 5, 0, 0, TAU); ctx.fill();
-
-    drawLeg(p.legs[0], true, team, s);
-    drawArm(p.arms[0], true, team, s, false);
-    // torso (jersey) and hips
-    capsule(p.px, p.py, p.cx, p.cy, 24 * s, team.main);
-    capsule(p.cx, p.cy, p.nx, p.ny, 22 * s, team.main);
-    capsule(p.px - f * 2, p.py + 2, p.px + f * 2, p.py + 2, 22 * s, team.dark);
-    // jersey number
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.font = `700 ${Math.round(12 * s)}px Inter, system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(String(p.slot + 1), p.cx, p.cy);
-    // neck + head
-    capsule(p.nx, p.ny, p.hx, p.hy, 7 * s, COLORS.skin);
-    dot(p.hx, p.hy, BODY.head * s, COLORS.skin);
-    ctx.strokeStyle = team.main; ctx.lineWidth = 4 * s;
-    ctx.beginPath(); ctx.arc(p.hx, p.hy, BODY.head * s - 1, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
-    dot(p.hx + f * 6 * s, p.hy - 1 * s, 1.8 * s, '#1a2040');
-    drawLeg(p.legs[1], false, team, s);
-    drawArm(p.arms[1], false, team, s, p.swing > 0);
-  }
-
-  function drawBall(b){
-    // trail
-    const t = b.trail;
-    for(let i = 0; i < t.length; i += 2){
-      const a = (i / t.length) * 0.22;
-      ctx.fillStyle = `rgba(255,236,170,${a})`;
-      ctx.beginPath(); ctx.arc(t[i], t[i + 1], ballR * (0.4 + 0.6 * i / t.length), 0, TAU); ctx.fill();
+  function drawHead(p, reflect){
+    const s = S, g = p.segs, app = p.app, team = COLORS[p.team];
+    const hd = g[14], nk = g[13], rh = hd.r;
+    seg(nk.ax, nk.ay, nk.bx, nk.by, nk.r, app.skinDark);
+    dot(hd.ax, hd.ay, rh, app.skin);
+    // local frame of the head (rotates with flips)
+    const ux = Math.cos(p.rot), uy = Math.sin(p.rot);          // body "right"
+    const L = (x, y)=> [hd.ax + (x * ux - y * uy), hd.ay + (x * uy + y * ux)];
+    ctx.save();
+    ctx.beginPath(); ctx.arc(hd.ax, hd.ay, rh, 0, TAU); ctx.clip();
+    ctx.fillStyle = app.hair;
+    const hc = app.style === 0 ? L(-p.facing * 2 * s, -rh * 0.62) : app.style === 1 ? L(p.facing * 1 * s, -rh * 0.7) : L(-p.facing * rh * 0.45, -rh * 0.3);
+    const hr = app.style === 2 ? [rh * 0.95, rh * 0.95] : [rh * 1.05, rh * 0.62];
+    ctx.beginPath(); ctx.ellipse(hc[0], hc[1], hr[0], hr[1], p.rot, 0, TAU); ctx.fill();
+    if(app.band){
+      ctx.strokeStyle = team.main; ctx.lineWidth = 3 * s;
+      ctx.beginPath(); ctx.arc(hd.ax, hd.ay, rh - 1.5 * s, p.rot + Math.PI * 1.08, p.rot + Math.PI * 1.92); ctx.stroke();
     }
-    // shadow
-    const h = FLOOR_Y - b.y;
-    ctx.fillStyle = `rgba(0,0,0,${Math.max(0.06, 0.3 - h / 1600)})`;
-    ctx.beginPath(); ctx.ellipse(b.x, FLOOR_Y + 3, ballR * Math.max(0.4, 1 - h / 900), 4, 0, 0, TAU); ctx.fill();
+    const ear = L(-p.facing * 1.5 * s, 1.5 * s);
+    dot(ear[0], ear[1], 2.5 * s, app.skinDark);
+    const eye = L(p.facing * 6.8 * s, -1 * s);
+    ctx.fillStyle = '#f7f8ff'; ctx.beginPath(); ctx.ellipse(eye[0], eye[1], 2.4 * s, 2 * s, 0, 0, TAU); ctx.fill();
+    let px = 0, py = 0;
+    if(p.focus && !reflect){
+      const dx = p.focus.x - eye[0], dy = p.focus.y - eye[1], d = Math.hypot(dx, dy) || 1;
+      px = dx / d * 1.1 * s; py = dy / d * 1.1 * s;
+    }
+    dot(eye[0] + px, eye[1] + py, 1.25 * s, '#14182c');
+    const brow0 = L(p.facing * 4.6 * s, -4.4 * s), brow1 = L(p.facing * 9 * s, -4 * s);
+    ctx.strokeStyle = shade(app.hair.startsWith('#') ? app.hair : '#222222', 0.8); ctx.lineWidth = 1.2 * s;
+    ctx.beginPath(); ctx.moveTo(brow0[0], brow0[1]); ctx.lineTo(brow1[0], brow1[1]); ctx.stroke();
+    const m0 = L(p.facing * 6.5 * s, 5.6 * s), m1 = L(p.facing * 10 * s, 5 * s);
+    ctx.strokeStyle = 'rgba(80,30,30,0.6)'; ctx.lineWidth = 1 * s;
+    ctx.beginPath(); ctx.moveTo(m0[0], m0[1]); ctx.lineTo(m1[0], m1[1]); ctx.stroke();
+    ctx.restore();
+  }
 
+  function drawPlayer(p, reflect){
+    const s = S, team = COLORS[p.team], g = p.segs;
+    if(!reflect){
+      const h = Math.max(0, PELVIS_GROUND_Y - p.y);
+      const sw = 30 * s * (1 - Math.min(0.6, h / 260));
+      ctx.fillStyle = `rgba(0,0,0,${0.38 - Math.min(0.22, h / 900)})`;
+      ctx.beginPath(); ctx.ellipse(p.x, FLOOR_Y + 3, sw, 5, 0, 0, TAU); ctx.fill();
+    }
+    drawLeg(p, 0, true);
+    drawArm(p, 0, true);
+    const t = g[12];
+    seg(t.ax, t.ay, t.bx, t.by, t.r, team.main);                        // jersey
+    partial(t.ax, t.ay, t.bx, t.by, 0, 0.22, t.r, team.dark);           // waistband / shorts top
+    const dx = t.bx - t.ax, dy = t.by - t.ay, len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len * p.facing, ny = dx / len * p.facing;
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2.4 * s;  // side stripe
+    ctx.beginPath(); ctx.moveTo(t.ax - nx * 6 * s, t.ay - ny * 6 * s); ctx.lineTo(t.bx - nx * 6 * s, t.by - ny * 6 * s); ctx.stroke();
+    ctx.strokeStyle = team.dark; ctx.lineWidth = 3 * s;                 // collar
+    ctx.beginPath(); ctx.arc(t.bx, t.by, 5 * s, 0, TAU); ctx.stroke();
+    if(!reflect){
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = `800 ${Math.round(12 * s)}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(p.slot + 1), lerp(t.ax, t.bx, 0.55), lerp(t.ay, t.by, 0.55));
+    }
+    drawHead(p, reflect);
+    drawLeg(p, 1, false);
+    drawArm(p, 1, false);
+  }
+
+  function drawBall(b, reflect){
+    if(!reflect){
+      const t = b.trail;
+      for(let i = 0; i < t.length; i += 2){
+        const a = (i / t.length) * 0.22;
+        ctx.fillStyle = `rgba(255,236,170,${a})`;
+        ctx.beginPath(); ctx.arc(t[i], t[i + 1], ballR * (0.4 + 0.6 * i / t.length), 0, TAU); ctx.fill();
+      }
+      const h = FLOOR_Y - b.y;
+      ctx.fillStyle = `rgba(0,0,0,${Math.max(0.06, 0.3 - h / 1600)})`;
+      ctx.beginPath(); ctx.ellipse(b.x, FLOOR_Y + 3, ballR * Math.max(0.4, 1 - h / 900), 4, 0, 0, TAU); ctx.fill();
+    }
     ctx.save();
     ctx.translate(b.x, b.y);
     const grd = ctx.createRadialGradient(-ballR * 0.35, -ballR * 0.4, ballR * 0.1, 0, 0, ballR);
@@ -1624,6 +1978,28 @@
     ctx.restore();
   }
 
+  // Exact collision shapes, drawn from the same capsules the physics uses.
+  function drawHitboxes(m){
+    ctx.save();
+    ctx.lineCap = 'round';
+    const col = {arm: 'rgba(80,240,170,0.45)', leg: 'rgba(255,212,90,0.45)', body: 'rgba(255,100,140,0.35)'};
+    for(const p of m.players){
+      for(const g of p.segs){
+        ctx.strokeStyle = col[g.kind]; ctx.lineWidth = 2 * g.r;
+        ctx.beginPath(); ctx.moveTo(g.ax, g.ay); ctx.lineTo(g.bx + (g.ax === g.bx && g.ay === g.by ? 0.01 : 0), g.by); ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
+    for(const b of m.balls){ ctx.beginPath(); ctx.arc(b.x, b.y, ballR, 0, TAU); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+    ctx.strokeRect(NET_X - NET_W / 2, NET_TOP, NET_W, FLOOR_Y - NET_TOP);
+    for(const h of m.hits){
+      ctx.strokeStyle = `rgba(255,255,255,${h.life / 0.6})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(h.x - 5, h.y - 5); ctx.lineTo(h.x + 5, h.y + 5); ctx.moveTo(h.x + 5, h.y - 5); ctx.lineTo(h.x - 5, h.y + 5); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawSensors(m){
     ctx.save();
     ctx.setLineDash([5, 6]);
@@ -1632,7 +2008,7 @@
       if(!b) continue;
       const col = p.team === 'left' ? 'rgba(127,182,255,0.55)' : 'rgba(255,164,122,0.55)';
       ctx.strokeStyle = col; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(p.nx, p.ny); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p.hx, p.hy); ctx.lineTo(b.x, b.y); ctx.stroke();
       if(p.inp[13] > 0){
         ctx.setLineDash([]);
         ctx.strokeStyle = col; ctx.lineWidth = 2;
@@ -1663,72 +2039,142 @@
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
 
+  // Crowd: slices of two pre-rendered poses; slices bounce and stand up with the excitement.
+  function drawCrowd(m, now){
+    const t = now / 1000;
+    const k = viewScale, sliceW = canvas.width / CROWD_SLICES, h = crowdA.height;
+    const hype = m ? m.hype : 0.15;
+    const wave = m && m.rallyCrossings >= 6 ? ((t * 0.32) % 1.5 - 0.25) * FIELD_W : -9999;
+    for(let i = 0; i < CROWD_SLICES; i++){
+      const cx = (i + 0.5) * FIELD_W / CROWD_SLICES;
+      const cheer = m && m.cheer && (m.cheer.team === 'left' ? cx < NET_X : cx >= NET_X) ? Math.min(1, m.cheer.life) : 0;
+      const wd = (cx - wave) / 80, w = Math.exp(-wd * wd);
+      const energy = Math.min(1, hype * 0.8 + cheer + w);
+      const phase = Math.sin(t * (6 + energy * 6) + i * 1.9);
+      const lift = Math.max(0, phase) * (0.6 + energy * 6) + w * 10 + cheer * 4;
+      const up = w > 0.45 || cheer > 0.2 || (energy > 0.6 && phase > 0.4);
+      const sx = Math.floor(i * sliceW), sw = Math.ceil(sliceW) + 1;
+      ctx.drawImage(up ? crowdB : crowdA, sx, 0, sw, h, sx, Math.round((CROWD_Y0 - lift) * k), sw, h);
+    }
+  }
+
+  function drawLed(m, now){
+    const t = now / 1000;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, LED_TOP + 1, FIELD_W, LED_BOT - LED_TOP - 2); ctx.clip();
+    ctx.font = '800 15px ui-monospace, Menlo, Consolas, monospace'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    const y = (LED_TOP + LED_BOT) / 2 + 1;
+    if(m && m.cheer){
+      const blink = Math.sin(t * 14) > -0.3;
+      ctx.fillStyle = m.cheer.team === 'left' ? (blink ? '#7fb6ff' : '#2a4f86') : (blink ? '#ffa47a' : '#7a3a1e');
+      const msg = `POINT ${m.cheer.team === 'left' ? 'BLUE' : 'ORANGE'}!   `;
+      const w = ctx.measureText(msg).width;
+      for(let x = 0; x < FIELD_W + w; x += w) ctx.fillText(msg, x, y);
+    } else {
+      const msg = 'NEAT LEAGUE  ·  VOLLYBALL LAB  ·  EVOLVED, NOT PROGRAMMED  ·  FOODSIM ARENA  ·  ';
+      const w = ctx.measureText(msg).width;
+      const off = -((t * 60) % w);
+      ctx.fillStyle = '#ffcf6b';
+      for(let x = off; x < FIELD_W; x += w) ctx.fillText(msg, x, y);
+    }
+    ctx.restore();
+  }
+
+  function drawScoreboard(m){
+    const w = 300, h = 62, x = NET_X - w / 2, y = 40;
+    ctx.strokeStyle = 'rgba(160,175,220,0.35)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x + 40, 30); ctx.lineTo(x + 40, y); ctx.moveTo(x + w - 40, 30); ctx.lineTo(x + w - 40, y); ctx.stroke();
+    ctx.fillStyle = '#05081a'; roundRect(x, y, w, h, 10); ctx.fill();
+    ctx.strokeStyle = 'rgba(160,175,220,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = COLORS.left.main; ctx.fillRect(x + 10, y + 8, 6, h - 16);
+    ctx.fillStyle = COLORS.right.main; ctx.fillRect(x + w - 16, y + 8, 6, h - 16);
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.font = '700 10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8f9bc0';
+    if(config.mode === 'competition'){
+      ctx.fillText('BLUE', x + 62, y + 15); ctx.fillText('ORANGE', x + w - 62, y + 15);
+      ctx.font = '800 32px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillStyle = '#7fb6ff'; ctx.fillText(String(m.stats.points.left).padStart(2, '0'), x + 62, y + 40);
+      ctx.fillStyle = '#ffa47a'; ctx.fillText(String(m.stats.points.right).padStart(2, '0'), x + w - 62, y + 40);
+      ctx.fillStyle = '#ffcf6b'; ctx.font = '800 20px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillText(m.rally.toFixed(1), NET_X, y + 40);
+      ctx.font = '700 10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8f9bc0'; ctx.fillText('RALLY S', NET_X, y + 15);
+    } else {
+      ctx.fillText('OVER THE NET', x + 85, y + 15); ctx.fillText('RALLY TIME', x + w - 80, y + 15);
+      ctx.font = '800 32px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillStyle = '#9df0c8'; ctx.fillText(String(m.rallyCrossings).padStart(2, '0'), x + 85, y + 40);
+      ctx.fillStyle = '#ffcf6b'; ctx.fillText(m.rally.toFixed(1), x + w - 80, y + 40);
+    }
+  }
+
   function drawHud(m){
     ctx.textBaseline = 'middle';
-    // left card: what are we watching
     const title = viewMode === 'turbo'
       ? (trainer.champion ? `Champion · gen ${trainer.championGen}` : 'Untrained brain · gen 1')
       : `Live · genome ${trainer.index + 1} / ${trainer.pop.genomes.length}`;
-    ctx.fillStyle = 'rgba(6,10,28,0.72)';
-    roundRect(40, 40, 250, 66, 12); ctx.fill();
+    ctx.fillStyle = 'rgba(6,10,28,0.8)';
+    roundRect(40, 44, 240, 58, 10); ctx.fill();
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#eef2ff'; ctx.font = '700 16px Inter, system-ui, sans-serif';
-    ctx.fillText(title, 56, 62);
-    ctx.fillStyle = '#9aa6c8'; ctx.font = '500 13px Inter, system-ui, sans-serif';
+    ctx.fillStyle = '#eef2ff'; ctx.font = '700 15px Inter, system-ui, sans-serif';
+    ctx.fillText(title, 54, 64);
+    ctx.fillStyle = '#9aa6c8'; ctx.font = '500 12px Inter, system-ui, sans-serif';
     const sub = viewMode === 'turbo'
       ? `Training gen ${trainer.generation} in background`
       : `Fitness ${m.fitness.toFixed(1)} · serve ${Math.min(m.serveIndex + 1, SERVES_PER_GENOME)}/${SERVES_PER_GENOME}`;
-    ctx.fillText(sub, 56, 86);
-
-    // centre pill: rally or score
-    const text = config.mode === 'competition'
-      ? `${m.stats.points.left}  :  ${m.stats.points.right}`
-      : `Over the net ${m.rallyCrossings}   ·   ${m.rally.toFixed(1)} s`;
-    ctx.font = '700 17px Inter, system-ui, sans-serif';
-    const w = ctx.measureText(text).width + 40;
-    ctx.fillStyle = 'rgba(6,10,28,0.72)';
-    roundRect(NET_X - w / 2, 40, w, 36, 18); ctx.fill();
-    ctx.textAlign = 'center';
-    if(config.mode === 'competition'){
-      ctx.fillStyle = '#7fb6ff'; ctx.fillText(String(m.stats.points.left), NET_X - 22, 58);
-      ctx.fillStyle = '#9aa6c8'; ctx.fillText(':', NET_X, 58);
-      ctx.fillStyle = '#ffa47a'; ctx.fillText(String(m.stats.points.right), NET_X + 22, 58);
-    } else {
-      ctx.fillStyle = '#eef2ff'; ctx.fillText(text, NET_X, 58);
-    }
+    ctx.fillText(sub, 54, 86);
+    drawScoreboard(m);
     if(paused){
-      ctx.fillStyle = 'rgba(6,10,28,0.72)';
-      roundRect(NET_X - 70, 90, 140, 32, 16); ctx.fill();
-      ctx.fillStyle = '#ffd479'; ctx.font = '700 14px Inter, system-ui, sans-serif';
-      ctx.fillText('PAUSED', NET_X, 106);
+      ctx.fillStyle = 'rgba(6,10,28,0.8)';
+      roundRect(NET_X - 70, 112, 140, 30, 15); ctx.fill();
+      ctx.fillStyle = '#ffd479'; ctx.font = '700 14px Inter, system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('PAUSED', NET_X, 127);
     }
   }
 
   function render(m){
+    const now = performance.now();
+    const k = viewScale;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(bgCanvas, 0, 0);
-    ctx.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    drawCrowd(m, now);
+    ctx.drawImage(midCanvas, 0, Math.round(MID_Y0 * k));
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    drawLed(m, now);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(courtCanvas, 0, Math.round(COURT_Y0 * k));
+    ctx.setTransform(k, 0, 0, k, 0, 0);
     if(!m) return;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    // glossy floor: faint mirror image of the play
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, FLOOR_Y + 2, FIELD_W, FIELD_H - FLOOR_Y); ctx.clip();
+    ctx.globalAlpha = 0.14;
+    ctx.transform(1, 0, 0, -1, 0, 2 * FLOOR_Y + 4);
+    for(const p of m.players) drawPlayer(p, true);
+    for(const b of m.balls) drawBall(b, true);
+    ctx.restore();
     for(const mk of m.marks){
       ctx.strokeStyle = `rgba(255,212,121,${mk.life * 0.8})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(mk.x, FLOOR_Y + 2, 20 + (1 - mk.life) * 40, 6 + (1 - mk.life) * 6, 0, 0, TAU); ctx.stroke();
     }
-    for(const p of m.players) drawPlayer(p);
-    if(m.pause <= 0 || m.balls.length) for(const b of m.balls) drawBall(b);
+    for(const p of m.players) drawPlayer(p, false);
+    for(const b of m.balls) drawBall(b, false);
     for(const e of m.fx){
       const a = Math.max(0, e.life / e.max);
+      ctx.globalAlpha = a;
       if(e.kind === 'spark'){
-        ctx.globalAlpha = a; dot(e.x, e.y, 2.4, e.col);
+        dot(e.x, e.y, 2.4, e.col);
+      } else if(e.kind === 'ring'){
+        ctx.strokeStyle = e.col; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(e.x, e.y, 4 + (1 - a) * 16, 0, TAU); ctx.stroke();
       } else {
-        ctx.globalAlpha = a;
-        ctx.fillStyle = e.col; ctx.font = '700 18px Inter, system-ui, sans-serif';
+        ctx.fillStyle = e.col; ctx.font = '800 18px Inter, system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(e.text, e.x, e.y);
       }
     }
     ctx.globalAlpha = 1;
+    if(config.showHitboxes) drawHitboxes(m);
     if(config.showSensors) drawSensors(m);
     drawHud(m);
   }
@@ -1953,6 +2399,7 @@
     }
     Q('selMode').value = config.mode;
     Q('cbShowSensors').checked = !!config.showSensors;
+    Q('cbShowHitboxes').checked = !!config.showHitboxes;
     Q('selPreset').value = currentPreset;
     syncing = false;
   }
@@ -2002,6 +2449,7 @@
     restartTraining();
   });
   Q('cbShowSensors').addEventListener('change', (e)=>{ config.showSensors = e.target.checked; });
+  Q('cbShowHitboxes').addEventListener('change', (e)=>{ config.showHitboxes = e.target.checked; });
   Q('btnRestart').addEventListener('click', ()=>{
     if(trainer.generation > 3 && !confirm('Restart training and lose current progress?')) return;
     restartTraining();
@@ -2029,7 +2477,7 @@
   });
 
   // ---------- Save / load ----------
-  const SAVE_VERSION = 3;
+  const SAVE_VERSION = 4;
   function serializeGenome(g){
     return {
       nodes: Array.from(g.nodes.values()).map((n)=> [n.id, n.type, n.layer]),
