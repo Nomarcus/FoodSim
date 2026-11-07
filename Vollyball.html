@@ -144,10 +144,14 @@
               <button id="viewLive" type="button" title="Watch every genome while it is being evaluated">Live · every genome</button>
             </div>
             <button id="btnPause" class="tb-btn" type="button">⏸ Pause</button>
-            <button id="btnNewest" class="tb-btn" type="button" title="End the current rally and bring in the newest champion">⟳ Newest champion</button>
-            <button id="btnEndless" class="tb-btn on" type="button" aria-pressed="true" title="Let the champion keep playing for as long as the ball stays up, instead of re-serving after 25 seconds. Training is unaffected.">∞ Endless rally</button>
+            <select id="selMatch" class="cam-select" aria-label="Match length" title="Length of the match on show">
+              <option value="1">1 set</option>
+              <option value="3" selected>Best of 3 sets</option>
+              <option value="5">Best of 5 sets</option>
+            </select>
+            <button id="btnNewest" class="tb-btn" type="button" title="Stop this match and start a new one with the newest champion">⟳ New match</button>
             <span class="grow"></span>
-            <span class="hint" id="viewHint">Training runs in the background; the field shows the best brain so far.</span>
+            <span class="hint" id="viewHint">Training runs in the background; the field shows a full match: champion (blue) vs coach (orange).</span>
           </div>
         </div>
 
@@ -155,8 +159,8 @@
           <div class="stat-card"><span class="stat-label">Generation</span><span class="stat-value" id="stat-generation">1</span></div>
           <div class="stat-card"><span class="stat-label">Evaluating</span><span class="stat-value" id="stat-genome">1 / 1</span></div>
           <div class="stat-card"><span class="stat-label">Best fitness</span><span class="stat-value" id="stat-best">–</span></div>
-          <div class="stat-card"><span class="stat-label">Champion: over net / serve</span><span class="stat-value" id="stat-champ">–</span></div>
-          <div class="stat-card"><span class="stat-label">Longest rally (shown)</span><span class="stat-value" id="stat-longest">0.0 s</span></div>
+          <div class="stat-card"><span class="stat-label">Coach level</span><span class="stat-value" id="stat-level">1 / 8</span></div>
+          <div class="stat-card"><span class="stat-label">Champion: rallies won</span><span class="stat-value" id="stat-champ">–</span></div>
           <div class="stat-card"><span class="stat-label">Species</span><span class="stat-value" id="stat-species">1</span></div>
           <div class="stat-card"><span class="stat-label">Mutation (active)</span><span class="stat-value" id="stat-mutation">0%</span></div>
           <div class="stat-card"><span class="stat-label">Generations / min</span><span class="stat-value" id="stat-rate">–</span></div>
@@ -165,13 +169,14 @@
         <div class="insight-row">
           <section class="card" aria-labelledby="fitness-heading">
             <div class="card-head">
-              <h2 id="fitness-heading">Fitness per generation</h2>
+              <h2 id="fitness-heading">Rallies won against the coach</h2>
               <span class="card-note" id="fitnessChartNote">Awaiting first generation</span>
             </div>
-            <canvas id="fitnessChart" class="mini" aria-label="Best and average fitness per generation"></canvas>
+            <canvas id="fitnessChart" class="mini" aria-label="Share of rallies won against the coach per generation"></canvas>
             <div class="legend-inline">
-              <span><span class="sw" style="background:#3987e5"></span>Best genome</span>
+              <span><span class="sw" style="background:#3987e5"></span>Champion</span>
               <span><span class="sw" style="background:#199e70"></span>Population average</span>
+              <span><span class="sw" style="background:#ffcf6b"></span>Coach levels up</span>
             </div>
           </section>
           <section class="card" aria-labelledby="brain-heading">
@@ -192,24 +197,7 @@
       <aside class="side">
         <section class="panel" aria-labelledby="controls-heading">
           <h2 id="controls-heading">Training controls</h2>
-          <p>Every player runs a copy of the same evolving brain. Most sliders apply live; population, hidden neurons and mode take effect on restart (population size also applies from the next generation).</p>
-
-          <div class="control">
-            <div class="control-header"><label class="label" for="selPreset">Training preset</label></div>
-            <select id="selPreset">
-              <option value="start">Start (warm-up)</option>
-              <option value="mid">Mid (stabilise)</option>
-              <option value="end">Endgame (polish)</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-          <div class="control" style="margin-top:8px">
-            <div class="control-header"><label class="label" for="selMode">Mode</label></div>
-            <select id="selMode">
-              <option value="cooperation">Cooperation – keep the rally alive</option>
-              <option value="competition">Competition – beat last champion</option>
-            </select>
-          </div>
+          <p>Every blue player runs a copy of the same evolving brain and trains against a coded coach. Population size applies from the next generation; hidden neurons on restart.</p>
 
           <div class="group-title">Evolution</div>
           <div class="control-grid">
@@ -239,31 +227,11 @@
             </div>
           </div>
 
-          <div class="group-title">Rewards</div>
-          <div class="control-grid">
-            <div class="control">
-              <div class="control-header"><label class="label" for="slArmBonus">Hand / forearm touch</label><span class="val" id="lbArmBonus"></span></div>
-              <input id="slArmBonus" type="range" min="0" max="6" step="0.5" value="2">
-            </div>
-            <div class="control">
-              <div class="control-header"><label class="label" for="slKickBonus">Foot / shin touch</label><span class="val" id="lbKickBonus"></span></div>
-              <input id="slKickBonus" type="range" min="0" max="5" step="0.5" value="1">
-            </div>
-            <div class="control">
-              <div class="control-header"><label class="label" for="slHeadPenalty">Head / body touch penalty</label><span class="val" id="lbHeadPenalty"></span></div>
-              <input id="slHeadPenalty" type="range" min="0" max="3" step="0.1" value="0.5">
-            </div>
-          </div>
-
           <div class="group-title">Court &amp; players</div>
           <div class="control-grid">
             <div class="control">
               <div class="control-header"><label class="label" for="slPlayersPerTeam">Players per team</label><span class="val" id="lbPlayersPerTeam"></span></div>
               <input id="slPlayersPerTeam" type="range" min="1" max="4" step="1" value="2">
-            </div>
-            <div class="control">
-              <div class="control-header"><label class="label" for="slBallCount">Ball count</label><span class="val" id="lbBallCount"></span></div>
-              <input id="slBallCount" type="range" min="1" max="4" step="1" value="1">
             </div>
             <div class="control">
               <div class="control-header"><label class="label" for="slBallRadius">Ball size</label><span class="val" id="lbBallRadius"></span></div>
@@ -309,11 +277,12 @@
         <section class="legend">
           <strong>How it works</strong>
           <p>Two teams, <span class="tl">blue</span> and <span class="tr">orange</span>, play by volleyball rules: the server hits from behind the end line, each side gets at most three touches, the same player may not touch twice in a row, the ball must cross between the antennas, and a ball that lands outside the lines or touches a wall or the ceiling is out. Rally scoring, sets to 25 (win by 2); the team that wins a rally serves, and rotates when it wins the serve back.</p>
+          <p><strong>How it learns:</strong> each brain plays 12 rallies against the <strong>coach</strong>, a coded orange team with a skill level from 1 to 8. Fitness is mostly points won. The generation's best brain is then checked on 24 fresh rallies; when it wins 70% of them, the coach moves up a level. The chart shows that check and every level-up.</p>
           <p>On each touch the brain decides whether to <strong>pass</strong> (code then lobs it to the best-placed teammate: a forearm bump low, a two-hand set high) or to <strong>attack</strong> – a one-arm swing on a high ball, aimed by the brain. Passes that are played on, and balls sent over after two or three touches by different players, earn extra.</p>
-          <p><strong>The evolved brain decides</strong> eight things per player, 60 times a second: move forward/back, move sideways, jump, hit angle, sideways aim, hit power, pass or attack, and whether to throw a backflip in the air. The server's brain also picks the serve's angle, power and direction. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
+          <p><strong>The evolved brain decides</strong> six things per player, 60 times a second: whether to spike (code then times the jump), the hit angle, the sideways aim, the power, pass or attack, and whether to throw a backflip in the air. The server's brain also picks the serve's angle, power and direction. <strong>Ordinary code</strong> runs each player to the ball (if it is theirs to take) or back to their spot. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
           <p><strong>Ordinary code</strong> animates the body: spine, head, three-part arms (upper arm, forearm, hand) and three-part legs (thigh, shin, foot) are posed with inverse kinematics so the hands reach for the ball. Hands and forearms strike, shins and feet kick (upside down in a flip that is a bicycle kick), and every other part only deflects the ball. Each part is drawn exactly as wide as its collision shape – tick “Show hitboxes” to see them.</p>
-          <p>Every genome in a generation receives the <em>same</em> set of serves, so their scores are directly comparable. Training always caps a serve at 25 s; <strong>∞ Endless rally</strong> only lets the champion on show keep going for as long as the ball stays up.</p>
-          <p>The court is <strong>3D</strong>: players move forwards, backwards and sideways, each has a home spot so the team covers the whole half, and a ball landing outside the side lines is out. Every brain starts with one instinct – head for your job: the ball if you are nearest to where it comes down, otherwise your spot – and evolution refines the rest. The 2D view is a side-on look at the same court. Drag the 3D view to orbit, scroll to zoom.</p>
+          <p>Every genome in a generation receives the <em>same</em> serves, so their scores are directly comparable. Training rallies stop after 30 s and then count for neither side; the match on show has no time limit and is played to the end.</p>
+          <p>The court is <strong>3D</strong>: players move forwards, backwards and sideways, each has a home spot so the team covers the whole half, and a ball landing outside the lines is out. The 2D view is a side-on look at the same court. Drag the 3D view to orbit, scroll to zoom.</p>
         </section>
       </aside>
     </div>
@@ -350,14 +319,14 @@
   // =====================================================================
   //  Brain layout: one shared network per player, egocentric + mirrored
   // =====================================================================
-  const INPUT_LABELS = ['Ball x', 'Ball y', 'Ball z', 'Ball vx', 'Ball vy', 'Ball vz', 'Land x', 'Land z', 'Land time',
-    'Lands mine', 'Ball mine', 'Net dist', 'Height', 'Vel y', 'Grounded', 'Mate x', 'Mate z', 'Closest',
-    'Touches', 'Hit last', 'Opp x', 'Opp z', 'Home x', 'Home z', 'Job x', 'Job z', 'Serving'];
-  const OUTPUT_LABELS = ['Move', 'Side', 'Jump', 'Aim', 'Aim side', 'Power', 'Flip', 'Pass'];
+  // The brain makes the volleyball decisions; running to the right spot is ordinary code.
+  const INPUT_LABELS = ['Ball x', 'Ball y', 'Ball z', 'Ball vx', 'Ball vy', 'Ball vz', 'Land time', 'Ball mine',
+    'Touches', 'My ball', 'Height', 'Grounded', 'Net dist', 'Mate x', 'Mate z', 'Opp x', 'Opp z', 'Open z', 'Serving', 'Ball height'];
+  const OUTPUT_LABELS = ['Spike', 'Aim', 'Aim side', 'Power', 'Pass', 'Flip'];
   const N_IN = INPUT_LABELS.length;
   const N_OUT = OUTPUT_LABELS.length;
-  const IN_LAND_X = 6, IN_LAND_Z = 7, IN_CLOSEST = 17, IN_HOME_X = 22, IN_HOME_Z = 23, IN_JOB_X = 24, IN_JOB_Z = 25, IN_TOUCHES = 18, IN_SERVING = 26;
-  const OUT_MOVE = 0, OUT_SIDE = 1, OUT_JUMP = 2, OUT_AIM = 3, OUT_AIM_SIDE = 4, OUT_POWER = 5, OUT_FLIP = 6, OUT_PASS = 7;
+  const IN_TOUCHES = 8, IN_MYBALL = 9, IN_GROUNDED = 11, IN_NETDIST = 12, IN_OPEN_Z = 17, IN_SERVING = 18, IN_BALL_H = 19;
+  const OUT_JUMP = 0, OUT_AIM = 1, OUT_AIM_SIDE = 2, OUT_POWER = 3, OUT_PASS = 4, OUT_FLIP = 5;
   const WEIGHT_CAP = 8;
 
   // =====================================================================
@@ -576,10 +545,6 @@
       }
       // Prior: lean toward the predicted landing spot. Evolution can undo it.
       for(const c of g.conns){
-        // Positioning instinct: head for your job (the ball if it is yours, otherwise your spot).
-        // In 3D evolution could not find this from scratch in tests, so every genome starts with it.
-        if(c.from === IN_JOB_X && c.to === this.outStart + OUT_MOVE) c.weight = rand(2.0, 3.0);
-        if(c.from === IN_JOB_Z && c.to === this.outStart + OUT_SIDE) c.weight = rand(2.0, 3.0);
         // A mild starting habit for the three touches: pass on the first two, attack on the third.
         // Evolution is free to change it.
         if(c.from === this.biasId && c.to === this.outStart + OUT_PASS) c.weight = rand(0.2, 0.4);
@@ -695,7 +660,7 @@
 
   const SIM_DT = 1 / 60;
   const GRAVITY = 450;                 // ball
-  const MAX_BALL_SPEED = 680;
+  const MAX_BALL_SPEED = 800;
   const WALL_DAMP = 0.82, CEIL_DAMP = 0.85, NET_DAMP = 0.7;
   const HIT_MIN = 270, HIT_MAX = 640;
   const HIT_COOLDOWN = 0.3;
@@ -703,24 +668,23 @@
 
   const PLAYER_GRAVITY = 1800;
   const BASE_JUMP = 640;
-  const MAX_MOVE = 360;
+  const MAX_MOVE = 330;
   const MOVE_ACCEL = 2800;
 
-  const SERVES_PER_GENOME = 6;
-  const SERVE_TIMEOUT = 25;            // seconds of game time per serve (training, and showcase unless endless)
-  const STUCK_LIMIT = 15;              // endless rally: re-serve if no one has touched the ball for this long
+  const SERVES_PER_GENOME = 12;
+  const SERVE_TIMEOUT = 30;            // training rallies stop here and count for neither side
+  const STUCK_LIMIT = 15;              // full match: re-serve a ball nobody has touched for this long
   const SERVE_DIST = 572;              // the server stands just behind the end line
   const SERVE_HOLD = 0.4;              // seconds the server holds the ball before the toss
   const TOSS_VY = 400;
   const SET_POINTS = 25;
-  const REACTION = 0.3;                // players read a new ball flight this long after a touch
+  const REACTION = 0.35;                // players read a new ball flight this long after a touch
 
   // Rewards that are not on sliders
   const ARC_HEIGHT = 100;
-  const R_FLIP = 0.25, FLIPS_REWARDED = 2;   // style bonus for a landed flip, capped per serve
-  const R_CROSS = 10, R_PASS = 3, R_FAULT = -3, R_SURVIVE = 0.6, R_POSITION = 0.25, R_NET_CLIP = -0.5;
-  const R_HOME = 0.06, R_OUT = -3;
-  const C_POINT_WIN = 20, C_POINT_LOSS = -6, C_CROSS = 4, C_GAP = 6, C_SPIKE = 4;
+  const R_FLIP = 0.1, FLIPS_REWARDED = 2;    // tiny style bonus for a landed flip, capped per rally
+  // Fitness is simple: points won against the coach, plus small nudges for playing volleyball.
+  const R_POINT = 10, R_LOST = -6, R_FAULT = -2, R_OVER = 1, R_PASS = 1, R_BODY = -0.5;
 
   // Collision radius of every body part at scale 1. Both views draw each part with
   // exactly this radius, so what you see touching the ball is what touches the ball.
@@ -736,20 +700,10 @@
   const DEFAULT_CONFIG = Object.freeze({
     populationSize: 48, initialHidden: 2, mutationRate: 28, elitism: 0.10,
     addConnectionRate: 12, addNodeRate: 4,
-    armReward: 2, kickReward: 1, headPenalty: 0.5,
-    playersPerTeam: 2, ballCount: 1, ballRadius: 20, playerScale: 1, jumpScale: 1,
-    simSpeed: 2, mode: 'cooperation', showSensors: false, showHitboxes: false, endlessRally: true
+    playersPerTeam: 2, ballRadius: 20, playerScale: 1, jumpScale: 1,
+    simSpeed: 2, showSensors: false, showHitboxes: false, matchSets: 3
   });
-  const PRESETS = {
-    start: {populationSize: 40, initialHidden: 2, mutationRate: 30, elitism: 0.10, addConnectionRate: 12, addNodeRate: 5,
-      armReward: 2, kickReward: 1, headPenalty: 0.5, playersPerTeam: 2, ballCount: 1, ballRadius: 21, playerScale: 1, jumpScale: 1},
-    mid: {populationSize: 60, initialHidden: 3, mutationRate: 22, elitism: 0.12, addConnectionRate: 10, addNodeRate: 4,
-      armReward: 2, kickReward: 1, headPenalty: 0.8, playersPerTeam: 2, ballCount: 1, ballRadius: 19, playerScale: 1, jumpScale: 1.05},
-    end: {populationSize: 80, initialHidden: 4, mutationRate: 14, elitism: 0.15, addConnectionRate: 6, addNodeRate: 3,
-      armReward: 2.5, kickReward: 1, headPenalty: 1, playersPerTeam: 3, ballCount: 2, ballRadius: 17, playerScale: 1, jumpScale: 1.1}
-  };
   const config = Object.assign({}, DEFAULT_CONFIG);
-  let currentPreset = 'custom';
 
   // Derived sizes (recomputed when sliders change)
   let S = 1, ballR = 20, PELVIS_GROUND_Y = 0, CONTACT_Y = 0, ARM_REACH = 0, LEG_REACH = 0, JUMP_V = BASE_JUMP;
@@ -897,7 +851,8 @@
       this.out.fill(0);
       this.focus = null;
       this.wasClosest = false;
-      this.serving = false; this.holdBall = null; this.canPass = false; this.handsOff = false;
+      this.serving = false; this.holdBall = null; this.canPass = false; this.handsOff = false; this.jumpNow = false;
+      this.jobX = x; this.jobZ = z || 0;
       this.pose(0, true);
     }
     minX(){ return this.team === 'left' ? WALL_L + 22 * S : NET_X + NET_W / 2 + 20 * S; }
@@ -906,10 +861,12 @@
     control(dt){
       const f = this.facing, o = this.out;
       // Move (towards/away from the net) and Side, both in the player's mirrored frame.
-      let tvx = clamp(o[OUT_MOVE], -1, 1) * f * MAX_MOVE, tvz = clamp(o[OUT_SIDE], -1, 1) * f * MAX_MOVE;
-      if(this.serving){ tvx = 0; tvz = 0; }      // the server stays behind the line until the serve is hit
-      const tl = Math.hypot(tvx, tvz);
-      if(tl > MAX_MOVE){ tvx *= MAX_MOVE / tl; tvz *= MAX_MOVE / tl; }
+      // Running is code: towards the job spot the match worked out (the ball, or my spot).
+      let tvx = 0, tvz = 0;
+      if(!this.serving){
+        const dx = this.jobX - this.x, dz = this.jobZ - this.z, d = Math.hypot(dx, dz);
+        if(d > 2){ const sp = Math.min(MAX_MOVE, d * 6); tvx = dx / d * sp; tvz = dz / d * sp; }
+      }
       let dvx = tvx - this.vx, dvz = tvz - this.vz;
       const dl = Math.hypot(dvx, dvz), lim = MOVE_ACCEL * dt;
       if(dl > lim){ dvx *= lim / dl; dvz *= lim / dl; }
@@ -922,8 +879,8 @@
       if(this.z > PLAYER_Z){ this.z = PLAYER_Z; this.vz = 0; }
 
       if(this.jumpCd > 0) this.jumpCd -= dt;
-      if(this.grounded && o[OUT_JUMP] > 0.35 && this.jumpCd <= 0){
-        this.vy = -JUMP_V * (0.8 + 0.2 * o[OUT_JUMP]);
+      if(this.grounded && this.jumpNow && this.jumpCd <= 0){
+        this.vy = -JUMP_V;
         this.grounded = false;
         this.crouch = 0.6;
       }
@@ -1003,9 +960,11 @@
         const bd = Math.sqrt(bdx * bdx + bdy * bdy + bdz * bdz);
         if(this.holdBall){
           const hb = this.holdBall;                                                     // holding the ball to serve
-          tx = hb.x - f * 6 * s; ty = hb.y; tz = hb.z + side * (ballR + R.hand * s + 9 * s);
+          tx = hb.x + f * 2 * s; ty = hb.y; tz = hb.z + side * (ballR + R.hand * s + 6 * s);
         } else if(flipping){
           tx = sx + f * 14 * s; ty = sy + 16 * s; tz = sz - side * 3 * s;                 // arms tucked
+        } else if(oneArm && i === 0 && this.serving){
+          tx = sx - f * 8 * s; ty = sy + 44 * s; tz = sz - 6 * s;                         // server's free arm drops out of the way
         } else if(oneArm && i === 0){
           tx = sx + f * 22 * s; ty = sy - 12 * s; tz = sz - 4 * s;                        // free arm points ahead
         } else if(oneArm && i === 1 && this.swing <= 0 && this.hitCd <= 0.05 &&
@@ -1249,14 +1208,42 @@
   }
 
   // =====================================================================
+  //  Coach: the orange team in training. Plain rules, no learning, with a skill level 1–8:
+  //  higher levels aim more precisely, look for gaps (from level 2) and spike (from level 3).
+  // =====================================================================
+  class Coach {
+    constructor(level){ this.level = level; }
+    activate(inp, out){
+      const L = this.level, sd = [0, 0.4, 0.3, 0.22, 0.16, 0.11, 0.07, 0.04, 0.02][L] || 0.02;
+      const n = ()=> gauss() * sd;
+      const touches = Math.round(inp[IN_TOUCHES] * 3);
+      const open = clamp(inp[IN_OPEN_Z], -1, 1);
+      out[OUT_PASS] = touches < 2 ? 1 : -1;
+      out[OUT_FLIP] = -1;
+      out[OUT_JUMP] = (L >= 3 && touches >= 2 && inp[IN_NETDIST] < 0.42) ? 1 : -1;      // spike from the front
+      if(inp[IN_SERVING] > 0){
+        out[OUT_AIM] = n() * 0.6; out[OUT_POWER] = n() * 0.6;
+        out[OUT_AIM_SIDE] = (L >= 2 ? open * 1.2 : 0) + n();
+      } else if(inp[IN_GROUNDED] < 0 && L >= 3 && inp[IN_BALL_H] > 0.1 && inp[IN_NETDIST] < 0.42){
+        out[OUT_AIM] = 0.8 + n(); out[OUT_POWER] = 0.85; out[OUT_AIM_SIDE] = open + n();   // spike
+      } else {
+        out[OUT_AIM] = 0.2 + n(); out[OUT_POWER] = 0.25 + n() * 0.5;
+        out[OUT_AIM_SIDE] = (L >= 2 ? open * 0.8 : 0) + n();
+      }
+      return out;
+    }
+  }
+
+  // =====================================================================
   //  Match: plays a list of serves with given brains
   // =====================================================================
   class Match {
-    constructor({left, right, serves = null, display = false, mode = 'cooperation'}){
+    constructor({left, right, serves = null, display = false, sets = 3}){
       this.brain = {left, right};
-      this.serves = serves;            // null => endless random serves (showcase)
+      this.serves = serves;            // null => a full match (showcase)
       this.display = display;
-      this.mode = mode;
+      this.bestOf = sets;              // full match: best of 1, 3 or 5 sets
+      this.matchOver = null;
       this.teams = {left: [], right: []};
       const n = Math.max(1, Math.round(config.playersPerTeam));
       for(let i = 0; i < n; i++){
@@ -1279,7 +1266,6 @@
       this.hype = 0.15;        // crowd excitement, display only
       this.cheer = null;       // side whose fans are celebrating a point
       this.hits = [];          // recent contact points (hitbox overlay)
-      this.pendingBrain = null;
       // match state under the rules: rally scoring, sets to 25 (win by 2), side-out rotation
       this.score = {left: 0, right: 0};
       this.sets = {left: 0, right: 0};
@@ -1289,18 +1275,13 @@
     }
 
     startServe(){
-      if(this.pendingBrain){
-        this.brain = {left: this.pendingBrain.left, right: this.pendingBrain.right};
-        this.brainGen = this.pendingBrain.gen;
-        this.pendingBrain = null;
-      }
       let spec;
       if(this.serves){
         spec = this.serves[this.serveIndex];
         this.servingTeam = spec.team;
         this.rotation[spec.team] = Math.floor(this.serveIndex / 2);
       } else {
-        spec = makeServe(Math.random, 0, Math.max(1, Math.round(config.ballCount)));
+        spec = makeServe(Math.random, 0, 1);
         spec.team = this.servingTeam;
       }
       for(const p of this.players) p.reset(p.home.x, p.home.z);
@@ -1334,17 +1315,17 @@
         this.done = true;
         return;
       }
-      if(this.display) this.pause = 0.8;
+      if(this.display) this.pause = this.matchOver ? 4.5 : 0.8;
+      else if(this.matchOver) this.done = true;
       else this.startServe();
     }
 
     reward(team, value){
-      // Cooperation: everything counts. Competition: only the learner (left) is scored.
-      if(this.mode === 'cooperation' || team === 'left') this.fitness += value;
+      if(team === 'left') this.fitness += value;      // the learner always plays blue (left)
     }
     placeHeld(ball){
       const p = ball.held;
-      ball.x = p.x + p.facing * (ballR + 10 * S);
+      ball.x = p.x + p.facing * (ballR + 24 * S);
       ball.y = p.cy + 4 * S;
       ball.z = p.z;
     }
@@ -1361,14 +1342,23 @@
       if(team !== this.servingTeam){ this.rotation[team]++; this.servingTeam = team; }
       this.score[team]++;
       const o = other(team);
-      if(this.score[team] >= SET_POINTS && this.score[team] - this.score[o] >= 2){
+      // Sets to 25 (the deciding set to 15), win by 2; the match is best of 1, 3 or 5.
+      const need = Math.ceil(this.bestOf / 2);
+      const deciding = this.sets.left === need - 1 && this.sets.right === need - 1;
+      const target = deciding && this.bestOf > 1 ? 15 : SET_POINTS;
+      if(this.score[team] >= target && this.score[team] - this.score[o] >= 2){
         this.sets[team]++;
-        if(this.display) this.fx.push({kind: 'text', x: NET_X, y: NET_TOP - 150, z: 0, vy: -10, life: 2.5, max: 2.5, text: `Set to ${team === 'left' ? 'Blue' : 'Orange'}!`, col: team === 'left' ? '#7fb6ff' : '#ffa47a'});
-        this.score.left = 0; this.score.right = 0;
+        const name = team === 'left' ? 'Blue' : 'Orange', col = team === 'left' ? '#7fb6ff' : '#ffa47a';
+        if(this.serves === null && this.sets[team] >= need){
+          this.matchOver = {winner: team};
+        } else {
+          if(this.display) this.fx.push({kind: 'text', x: NET_X, y: NET_TOP - 150, z: 0, vy: -10, life: 2.5, max: 2.5, text: `Set to ${name}!`, col});
+          this.score.left = 0; this.score.right = 0;
+        }
       }
       this.hype = Math.min(1, this.hype + 0.45);
       this.cheer = {team, life: 2.2};
-      if(this.mode === 'competition') this.fitness += team === 'left' ? C_POINT_WIN : C_POINT_LOSS;
+      this.fitness += team === 'left' ? R_POINT : R_LOST;
     }
 
     focusBall(p){
@@ -1390,22 +1380,7 @@
       const b = this.focusBall(p);
       p.focus = b;
       const mineX = (x)=> (x - NET_X) * f < 0;
-      inp[0] = clamp((b.x - p.x) * f / 400, -2, 2);
-      inp[1] = clamp((b.y - p.y) / 400, -2, 2);
-      inp[2] = clamp((b.z - p.z) * f / 400, -2, 2);
-      inp[3] = b.vx * f / 600;
-      inp[4] = b.vy / 600;
-      inp[5] = b.vz * f / 600;
       const seen = b.seen || b.pred;
-      inp[6] = clamp((seen.x - p.x) * f / 400, -2, 2);
-      inp[7] = clamp((seen.z - p.z) * f / 400, -2, 2);
-      inp[8] = clamp(seen.t / 2, 0, 1.5);
-      inp[9] = mineX(seen.x) ? 1 : -1;
-      inp[10] = mineX(b.x) ? 1 : -1;
-      inp[11] = Math.abs(NET_X - p.x) / 600;
-      inp[12] = (PELVIS_GROUND_Y - p.y) / 150;
-      inp[13] = p.vy / 700;
-      inp[14] = p.grounded ? 1 : -1;
       const team = this.teams[p.team];
       let mate = null, mateD = Infinity, closest = true;
       // Whoever is nearest to where the ball comes down takes it; a small margin keeps
@@ -1415,32 +1390,67 @@
         if(q === p) continue;
         const d = Math.hypot(q.x - p.x, q.z - p.z);
         if(d < mateD){ mateD = d; mate = q; }
-        if(Math.hypot(q.x - seen.x, q.z - seen.z) - (q.wasClosest ? 30 : 0) < myGap) closest = false;
+        const qOut = b.lastPlayer === q && !b.crossed;
+        if(!qOut && Math.hypot(q.x - seen.x, q.z - seen.z) - (q.wasClosest ? 30 : 0) < myGap) closest = false;
       }
       p.wasClosest = closest;
-      inp[15] = mate ? clamp((mate.x - p.x) * f / 400, -2, 2) : 0;
-      inp[16] = mate ? clamp((mate.z - p.z) * f / 400, -2, 2) : 0;
-      inp[IN_CLOSEST] = closest ? 1 : -1;
-      inp[18] = (b.lastTeam === p.team && !b.crossed) ? b.teamTouches / 3 : 0;
-      inp[19] = b.lastPlayer === p ? 1 : 0;
-      let ox = 0, oz = 0;
-      const opp = this.teams[other(p.team)];
-      for(const q of opp){ ox += q.x; oz += q.z; }
-      ox /= opp.length; oz /= opp.length;
-      inp[20] = clamp((ox - p.x) * f / 800, -2, 2);
-      inp[21] = clamp((oz - p.z) * f / 400, -2, 2);
-      inp[22] = clamp((p.home.x - p.x) * f / 400, -2, 2);
-      inp[23] = clamp((p.home.z - p.z) * f / 400, -2, 2);
-      inp[IN_SERVING] = p.serving ? 1 : 0;
-      // A pass needs a teammate and must leave room for the attack: only on touches 1 and 2.
       const touchesSoFar = (b.lastTeam === p.team && !b.crossed) ? b.teamTouches : 0;
+      // A pass needs a teammate and must leave room for the attack: only on touches 1 and 2.
       p.canPass = !p.serving && team.length > 1 && touchesSoFar < 2;
       // Hands off when the team has no touches left (e.g. a teammate's serve on its way over).
-      p.handsOff = touchesSoFar >= 3 && b.lastPlayer !== p;
-      // 'Job': where this player is needed – the ball if it is mine to take, otherwise my spot.
-      const take = closest && mineX(seen.x);
-      inp[IN_JOB_X] = take ? inp[6] : inp[22];
-      inp[IN_JOB_Z] = take ? inp[7] : inp[23];
+      // ...and the player who touched it last leaves it alone (a second touch would be a double hit).
+      p.handsOff = (touchesSoFar >= 3 && b.lastPlayer !== p) || (b.lastPlayer === p && !b.crossed);
+      const take = closest && mineX(seen.x) && !p.handsOff;
+      // Code: run to the ball if it is mine, otherwise back to my spot.
+      p.jobX = take ? seen.x - f * 10 * S : p.home.x;
+      p.jobZ = take ? seen.z : p.home.z;
+      // Spike: the brain decides whether to attack in the air; code times the jump so the
+      // hand meets the ball at the top of the jump.
+      p.jumpNow = false;
+      const attacking = take && !p.serving && !(p.canPass && p.out[OUT_PASS] > 0);
+      if(attacking && p.out[OUT_JUMP] > 0 && p.grounded && b.vy > -200){
+        const tUp = JUMP_V / PLAYER_GRAVITY;
+        const yHand = PELVIS_GROUND_Y - JUMP_V * JUMP_V / (2 * PLAYER_GRAVITY) - 118 * S;
+        const disc = b.vy * b.vy + 2 * GRAVITY * (yHand - b.y);
+        if(b.y < yHand && disc > 0){
+          const t = (-b.vy + Math.sqrt(disc)) / GRAVITY;
+          const fx = b.x + b.vx * t, fz = b.z + b.vz * t;
+          if(t <= tUp + SIM_DT && Math.hypot(fx - p.x - f * 18 * S, fz - p.z) < 70 * S) p.jumpNow = true;
+        }
+      }
+
+      inp[0] = clamp((b.x - p.x) * f / 400, -2, 2);
+      inp[1] = clamp((b.y - p.y) / 400, -2, 2);
+      inp[2] = clamp((b.z - p.z) * f / 400, -2, 2);
+      inp[3] = b.vx * f / 600;
+      inp[4] = b.vy / 600;
+      inp[5] = b.vz * f / 600;
+      inp[6] = clamp(seen.t / 2, 0, 1.5);
+      inp[7] = mineX(b.x) ? 1 : -1;
+      inp[IN_TOUCHES] = touchesSoFar / 3;
+      inp[IN_MYBALL] = take ? 1 : -1;
+      inp[10] = (PELVIS_GROUND_Y - p.y) / 150;
+      inp[IN_GROUNDED] = p.grounded ? 1 : -1;
+      inp[12] = Math.abs(NET_X - p.x) / 600;
+      inp[13] = mate ? clamp((mate.x - p.x) * f / 400, -2, 2) : 0;
+      inp[14] = mate ? clamp((mate.z - p.z) * f / 400, -2, 2) : 0;
+      const opp = this.teams[other(p.team)];
+      let ox = 0, oz = 0;
+      for(const q of opp){ ox += q.x; oz += q.z; }
+      ox /= opp.length; oz /= opp.length;
+      inp[15] = clamp((ox - p.x) * f / 800, -2, 2);
+      inp[16] = clamp((oz - p.z) * f / 400, -2, 2);
+      // 'Open z': the spot across the court, mid-depth, furthest from every opponent.
+      const depthX = NET_X + f * 300;
+      let bestZ = 0, bestD = -1;
+      for(const cz of [-300, -150, 0, 150, 300]){
+        let d = Infinity;
+        for(const q of opp) d = Math.min(d, Math.hypot(q.x - depthX, q.z - cz));
+        if(d > bestD){ bestD = d; bestZ = cz; }
+      }
+      inp[IN_OPEN_Z] = clamp((bestZ - p.z) * f / 400, -2, 2);
+      inp[IN_SERVING] = p.serving ? 1 : 0;
+      inp[IN_BALL_H] = (NET_TOP - b.y) / 200;            // > 0 when the ball is above the tape
     }
 
     onTouch(p, ball, hit){
@@ -1504,6 +1514,7 @@
         const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
         let speed = lerp(HIT_MIN, HIT_MAX, (clamp(p.out[OUT_POWER], -1, 1) + 1) / 2);
         if(hit.kind === 'leg') speed *= 0.8;
+        if(hit.kind === 'arm' && !p.grounded && p.oneArm) speed *= 1.2;      // a spike from the air is faster
         ball.vx = dx / dl * speed + p.vx * 0.15;
         ball.vy = dy / dl * speed + p.vy * 0.1;
         ball.vz = dz / dl * speed + p.vz * 0.15;
@@ -1519,12 +1530,9 @@
       else { ball.teamTouches = 1; ball.touchedBy = new Set(); }
       if(serve) ball.teamTouches = 3;
       ball.touchedBy.add(p);
-      // Touches only pay in full when the ball arrived in a real arc (serves count as arcs).
-      const quality = ball.apexY + ballR < NET_TOP - ARC_HEIGHT * 0.5 ? 1 : 0.1;
       // A completed pass: a teammate's previous touch lifted the ball to this player.
       const completed = ball.lastTeam === team && !ball.crossed && ball.lastPlayer && ball.lastPlayer !== p &&
         ball.apexY < ball.touchY - 60;
-      const repeat = ball.lastPlayer === p && !ball.crossed;
       ball.lastTeam = team;
       ball.lastPlayer = p;
       ball.crossed = false;
@@ -1533,10 +1541,7 @@
       this.lastTouchAt = this.rally;
       this.stats.touches++;
 
-      let r = hit.kind === 'arm' ? config.armReward : hit.kind === 'leg' ? config.kickReward : -config.headPenalty;
-      if(repeat && r > 0) r *= 0.25;
-      if(r > 0) r *= quality;
-      if(this.mode === 'competition' && r > 0) r *= 0.5;
+      let r = hit.kind === 'body' ? R_BODY : 0;
       if(completed){ r += R_PASS; this.stats.passes++; }
       this.reward(team, r);
 
@@ -1567,7 +1572,7 @@
       if(this.display) this.updateFx(dt);
       if(this.pause > 0){
         this.pause -= dt;
-        if(this.pause <= 0) this.startServe();
+        if(this.pause <= 0){ if(this.matchOver) this.done = true; else this.startServe(); }
         return;
       }
       for(const b of this.balls){
@@ -1608,6 +1613,7 @@
         this.placeHeld(hb);
         if(this.serveT >= SERVE_HOLD){
           hb.held = null; sv.holdBall = null;
+          sv.hitCd = Math.max(sv.hitCd, 0.15);      // the ball is leaving the hands, not being hit
           hb.vy = -TOSS_VY * (0.95 + 0.1 * this.toss);
           hb.vx = sv.facing * (2 + 8 * this.toss);
           hb.vz = 0;
@@ -1628,7 +1634,7 @@
           this.endServe(ball);
           return;
         }
-        if(ball.collideNet()) this.reward(ball.lastTeam || sideOf(ball.x), R_NET_CLIP);
+        ball.collideNet();
 
         // Contacts. One real touch per ball per step; any other overlap (a player still in
         // their hit cooldown, or a hand meeting a ball on the far side of the net = a block)
@@ -1678,26 +1684,11 @@
             this.stats.crossings++;
             this.rallyCrossings++;
             this.hype = Math.min(1, this.hype + 0.12 + Math.min(0.2, this.rallyCrossings * 0.02));
-            // Full credit only for a real arc over the net; taps along the tape earn little.
-            const arc = ball.apexY + ballR < NET_TOP - ARC_HEIGHT ? 1 : 0.05;
-            const pace = Math.min(1, (this.rally - this.lastCross) / 1.2);
-            this.lastCross = this.rally;
-            const base = this.mode === 'competition' ? C_CROSS : R_CROSS;
-            // ...sent deep into the other half, and heading for the court rather than out.
+            // A ball sent over that is coming down inside the court, a little more after teamwork.
             const pr = predict(ball, ball.pred);
-            const depth = clamp(Math.abs(pr.x - NET_X) / 260, 0.25, 1);
-            const aimIn = inCourtXZ(pr.x, pr.z) ? 1 : 0.2;
-            // Teamwork: a ball that went over after two or three touches by different players.
-            const n = ball.touchedBy.size;
-            const team = n >= 3 ? 7 : n >= 2 ? 4 : 0;
-            this.reward(prevSide, (base * depth * (0.3 + 0.7 * pace) + team) * arc * aimIn);
-            if(this.mode === 'competition' && aimIn === 1){
-              // Competition: aim for the gaps – reward balls coming down far from every defender,
-              // and hard attacks travelling downwards.
-              let gap = Infinity;
-              for(const q of this.teams[side]) gap = Math.min(gap, Math.hypot(q.x - pr.x, q.z - pr.z));
-              const hard = ball.vy > 60 && Math.hypot(ball.vx, ball.vy, ball.vz) > 420 ? C_SPIKE : 0;
-              this.reward(prevSide, C_GAP * clamp(gap / 300, 0, 1) + hard);
+            if(inCourtXZ(pr.x, pr.z)){
+              const n = ball.touchedBy.size;
+              this.reward(prevSide, R_OVER + (n >= 3 ? 1 : n >= 2 ? 0.5 : 0));
             }
             if(this.display) this.fx.push({kind: 'text', x: ball.x, y: ball.y - ballR - 18, z: ball.z, vy: -36, life: 0.9, max: 0.9, text: 'Over!', col: '#9df0c8'});
           }
@@ -1720,36 +1711,13 @@
         }
       }
 
-      // Shaping. The teammate closest to where the ball comes down is rewarded for getting there;
-      // while the ball is on the other side, everyone is rewarded for being near their home spot.
-      for(const t of ['left', 'right']){
-        if(this.mode === 'competition' && t === 'right') continue;
-        const team = this.teams[t];
-        for(const b of this.balls){
-          if(sideOf(b.pred.x) !== t){
-            for(const p of team){
-              const g = Math.hypot(p.x - p.home.x, p.z - p.home.z);
-              this.fitness += R_HOME * dt * Math.max(0, 1 - g / 250);
-            }
-            continue;
-          }
-          let gap = Infinity, taker = null;
-          for(const p of team){ const g = Math.hypot(p.x - b.pred.x, p.z - b.pred.z); if(g < gap){ gap = g; taker = p; } }
-          this.fitness += R_POSITION * dt * Math.max(0, 1 - gap / 350);
-          for(const p of team){
-            if(p === taker) continue;
-            const g = Math.hypot(p.x - p.home.x, p.z - p.home.z);
-            this.fitness += R_HOME * 0.5 * dt * Math.max(0, 1 - g / 250);
-          }
-        }
-      }
-      if(this.mode === 'cooperation') this.fitness += R_SURVIVE * dt;
-
       this.rally += dt;
-      // The showcase can run an endless rally; a ball nobody has touched for a while is stuck.
-      if(this.serves === null && config.endlessRally){
+      // A full match has no time limit; only a ball nobody has touched for a long time is re-served.
+      if(this.serves === null){
         if(this.rally - this.lastTouchAt > STUCK_LIMIT) this.endServe();
-      } else if(this.rally >= SERVE_TIMEOUT) this.endServe();
+      } else if(this.rally >= SERVE_TIMEOUT){
+        this.endServe();                  // undecided: counts for neither side
+      }
     }
 
     // Make sure a ball that stays on screen (fault, landing) is not drawn inside a limb.
@@ -1822,11 +1790,13 @@
   }
 
   // =====================================================================
-  //  Trainer
+  //  Trainer: every genome plays the same serves against the coach. When the champion wins
+  //  most of its rallies two generations running, the coach moves up a level (1–5).
   // =====================================================================
+  const COACH_MAX = 8, LEVEL_UP_WIN = 0.7, CHECK_RALLIES = 24;
   const trainer = {
     pop: null, generation: 1, index: 0, serves: [], match: null,
-    champion: null, championGen: 0, opponent: null,
+    champion: null, championGen: 0, coachLevel: 1, levelStreak: 0,
     bestEver: -Infinity, history: [], genTimes: [],
     activeMutation: config.mutationRate, stagnant: 0,
     showcase: null
@@ -1836,15 +1806,13 @@
     const seed = (Date.now() ^ (trainer.generation * 2654435761)) >>> 0;
     const rng = mulberry32(seed);
     const list = [];
-    const balls = Math.max(1, Math.round(config.ballCount));
-    for(let i = 0; i < SERVES_PER_GENOME; i++) list.push(makeServe(rng, i, balls));
+    for(let i = 0; i < SERVES_PER_GENOME; i++) list.push(makeServe(rng, i, 1));
     return list;
   }
 
   function startGenome(){
     const g = trainer.pop.genomes[trainer.index];
-    const opponent = config.mode === 'competition' ? (trainer.opponent || trainer.pop.genomes[0]) : g;
-    trainer.match = new Match({left: g, right: opponent, serves: trainer.serves, display: viewMode === 'live', mode: config.mode});
+    trainer.match = new Match({left: g, right: new Coach(trainer.coachLevel), serves: trainer.serves, display: viewMode === 'live'});
   }
 
   function startGeneration(){
@@ -1859,7 +1827,8 @@
     trainer.generation = 1;
     trainer.champion = null;
     trainer.championGen = 0;
-    trainer.opponent = null;
+    trainer.coachLevel = 1;
+    trainer.levelStreak = 0;
     trainer.bestEver = -Infinity;
     trainer.history = [];
     trainer.genTimes = [performance.now()];
@@ -1872,20 +1841,37 @@
     updateStats(true);
   }
 
+  // A full match: the champion (blue) against the coach at its current level (orange).
+  // The players never change mid-match; the next match brings in the newest champion.
   function resetShowcase(){
     const brain = trainer.champion || trainer.pop.genomes[0];
-    const right = config.mode === 'competition' ? (trainer.opponent || brain) : brain;
-    trainer.showcase = new Match({left: brain, right, display: true, mode: config.mode});
+    trainer.showcase = new Match({left: brain, right: new Coach(trainer.coachLevel), display: true, sets: config.matchSets});
     trainer.showcase.brainGen = trainer.champion ? trainer.championGen : 0;
+    trainer.showcase.coachLevel = trainer.coachLevel;
+  }
+
+  // Share of the decided rallies that blue won (rallies cut off by the time limit do not count).
+  const winRate = (g)=> g.stats ? g.stats.won / Math.max(1, g.stats.won + g.stats.lost) : 0;
+
+  // The best of 48 genomes on 12 rallies always looks lucky, so the champion is checked
+  // on 24 fresh rallies against the coach. That number drives the chart and the level-ups.
+  function checkChampion(g){
+    const rng = mulberry32((trainer.generation * 7919 + 13) >>> 0);
+    const serves = [];
+    for(let i = 0; i < CHECK_RALLIES; i++) serves.push(makeServe(rng, i, 1));
+    const m = new Match({left: g, right: new Coach(trainer.coachLevel), serves, display: false});
+    while(!m.done) m.step(SIM_DT);
+    const decided = m.stats.points.left + m.stats.points.right;
+    return {win: m.stats.points.left / Math.max(1, decided), decided};
   }
 
   function finishGeneration(){
     const genomes = trainer.pop.genomes;
-    let best = genomes[0], sum = 0;
-    for(const g of genomes){ sum += g.fitness; if(g.fitness > best.fitness) best = g; }
-    const avg = sum / genomes.length;
-    const st = best.stats || {crossings: 0, serves: 1};
-    trainer.history.push({best: best.fitness, avg, cross: st.crossings / Math.max(1, st.serves)});
+    let best = genomes[0], sum = 0, winSum = 0;
+    for(const g of genomes){ sum += g.fitness; winSum += winRate(g); if(g.fitness > best.fitness) best = g; }
+    const check = checkChampion(best);
+    const entry = {best: best.fitness, avg: sum / genomes.length, win: check.win, decided: check.decided, avgWin: winSum / genomes.length, level: trainer.coachLevel};
+    trainer.history.push(entry);
 
     // adaptive mutation: bump on stagnation, relax toward the slider value on progress
     if(best.fitness > trainer.bestEver * 1.02 + 0.5){
@@ -1897,21 +1883,25 @@
     }
     trainer.bestEver = Math.max(trainer.bestEver, best.fitness);
 
-    const prevChampion = trainer.champion;
     trainer.champion = best.clone();
     trainer.championGen = trainer.generation;
-    if(config.mode === 'competition') trainer.opponent = prevChampion ? prevChampion : trainer.champion;
+
+    // Curriculum: beat the coach clearly twice in a row and it gets better.
+    if(entry.win >= LEVEL_UP_WIN && entry.decided >= 12){
+      if(++trainer.levelStreak >= 1 && trainer.coachLevel < COACH_MAX){
+        trainer.coachLevel++;
+        trainer.levelStreak = 0;
+        trainer.bestEver = -Infinity;      // fitness against a stronger coach is not comparable
+        entry.levelUp = true;
+      }
+    } else {
+      trainer.levelStreak = 0;
+    }
 
     trainer.pop.evolve(Object.assign({}, config, {mutationRate: trainer.activeMutation}));
     trainer.generation++;
     trainer.genTimes.push(performance.now());
     if(trainer.genTimes.length > 8) trainer.genTimes.shift();
-
-    // Showcase picks up the new champion at its next serve
-    if(trainer.showcase){
-      const right = config.mode === 'competition' ? trainer.opponent : trainer.champion;
-      trainer.showcase.pendingBrain = {left: trainer.champion, right, gen: trainer.championGen};
-    }
     brainLayoutCache = null;
     drawChart();
     startGeneration();
@@ -1925,7 +1915,7 @@
       if(m.done){
         const g = trainer.pop.genomes[trainer.index];
         g.fitness = m.fitness;
-        g.stats = {crossings: m.stats.crossings, serves: m.stats.serves, touches: m.stats.touches};
+        g.stats = {won: m.stats.points.left, lost: m.stats.points.right, rallies: m.stats.serves, crossings: m.stats.crossings, passes: m.stats.passes};
         trainer.index++;
         if(trainer.index >= trainer.pop.genomes.length) finishGeneration();
         else startGenome();
@@ -2321,7 +2311,7 @@
       const col = p.team === 'left' ? 'rgba(127,182,255,0.55)' : 'rgba(255,164,122,0.55)';
       ctx.strokeStyle = col; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(p.hx, p.hy); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if(p.inp[IN_CLOSEST] > 0){
+      if(p.wasClosest){
         ctx.setLineDash([]);
         ctx.strokeStyle = col; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(p.x, floorY(p.z), 36 * S, 8, 0, 0, TAU); ctx.stroke();
@@ -2420,7 +2410,7 @@
   function drawHud(m){
     ctx.textBaseline = 'middle';
     const title = viewMode === 'turbo'
-      ? (m.brainGen ? `Champion · gen ${m.brainGen}` : 'Untrained brain · gen 1')
+      ? (m.brainGen ? `Blue: champion gen ${m.brainGen}` : 'Blue: untrained brain')
       : `Live · genome ${trainer.index + 1} / ${trainer.pop.genomes.length}`;
     ctx.fillStyle = 'rgba(6,10,28,0.8)';
     roundRect(40, 44, 270, 58, 10); ctx.fill();
@@ -2429,10 +2419,20 @@
     ctx.fillText(title, 54, 64);
     ctx.fillStyle = '#9aa6c8'; ctx.font = '500 12px Inter, system-ui, sans-serif';
     const sub = viewMode === 'turbo'
-      ? (m.pendingBrain ? `Gen ${m.pendingBrain.gen} champion waits for the ball to drop` : `Training gen ${trainer.generation} in background`)
+      ? `Orange: coach level ${m.coachLevel || trainer.coachLevel} · training gen ${trainer.generation}`
       : `Fitness ${m.fitness.toFixed(1)} · serve ${Math.min(m.serveIndex + 1, SERVES_PER_GENOME)}/${SERVES_PER_GENOME}`;
     ctx.fillText(sub, 54, 86);
     drawScoreboard(m);
+    if(m.matchOver){
+      const win = m.matchOver.winner, name = win === 'left' ? 'Blue' : 'Orange';
+      const text = `${name} wins the match ${m.sets[win]}–${m.sets[other(win)]}`;
+      ctx.font = '800 26px Inter, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const w = ctx.measureText(text).width + 60;
+      ctx.fillStyle = 'rgba(5,8,26,0.88)'; roundRect(NET_X - w / 2, 150, w, 58, 14); ctx.fill();
+      ctx.strokeStyle = win === 'left' ? COLORS.left.main : COLORS.right.main; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = win === 'left' ? '#7fb6ff' : '#ffa47a';
+      ctx.fillText(text, NET_X, 179);
+    }
     if(paused){
       ctx.fillStyle = 'rgba(6,10,28,0.8)';
       roundRect(NET_X - 70, 112, 140, 30, 15); ctx.fill();
@@ -2550,23 +2550,29 @@
       return;
     }
     const last = data[data.length - 1];
-    note.textContent = `Gen ${data.length}: best ${last.best.toFixed(0)}, avg ${last.avg.toFixed(0)}`;
-    const padL = 40, padR = 10, padT = 10, padB = 22;
-    let lo = Math.min(0, ...data.map((d)=> d.avg)), hi = Math.max(...data.map((d)=> d.best), 1);
-    const span = hi - lo || 1;
+    note.textContent = `Gen ${data.length}: champion won ${Math.round(last.win * 100)}% vs coach level ${last.level}`;
+    const padL = 40, padR = 10, padT = 14, padB = 22;
     const X = (i)=> padL + (data.length === 1 ? (w - padL - padR) / 2 : i / (data.length - 1) * (w - padL - padR));
-    const Y = (v)=> padT + (1 - (v - lo) / span) * (h - padT - padB);
+    const Y = (v)=> padT + (1 - v) * (h - padT - padB);
     g.font = '11px Inter, system-ui, sans-serif'; g.fillStyle = '#9aa6c8'; g.textAlign = 'right'; g.textBaseline = 'middle';
     g.strokeStyle = 'rgba(148,163,209,0.14)'; g.lineWidth = 1;
-    for(let k = 0; k <= 3; k++){
-      const v = lo + span * k / 3;
+    for(const v of [0, 0.25, 0.5, 0.75, 1]){
       const y = Y(v);
       g.beginPath(); g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke();
-      g.fillText(v >= 100 || v <= -100 ? v.toFixed(0) : v.toFixed(1), padL - 6, y);
+      g.fillText(`${Math.round(v * 100)}%`, padL - 6, y);
     }
     g.textAlign = 'center'; g.textBaseline = 'top';
     const stepLbl = Math.max(1, Math.ceil(data.length / 8));
     for(let i = 0; i < data.length; i += stepLbl) g.fillText(String(i + 1), X(i), h - padB + 6);
+    // coach level-ups
+    g.setLineDash([3, 4]); g.strokeStyle = 'rgba(255,207,107,0.6)'; g.fillStyle = '#ffcf6b'; g.textBaseline = 'top';
+    data.forEach((d, i)=>{
+      if(!d.levelUp) return;
+      const x = X(i);
+      g.beginPath(); g.moveTo(x, padT); g.lineTo(x, h - padB); g.stroke();
+      g.fillText(`L${d.level + 1}`, x, 0);
+    });
+    g.setLineDash([]);
     const line = (key, col, width)=>{
       g.strokeStyle = col; g.lineWidth = width; g.lineJoin = 'round';
       g.beginPath();
@@ -2574,8 +2580,8 @@
       g.stroke();
       if(data.length === 1){ g.fillStyle = col; g.beginPath(); g.arc(X(0), Y(data[0][key]), 3, 0, TAU); g.fill(); }
     };
-    line('avg', '#199e70', 1.8);
-    line('best', '#3987e5', 2.4);
+    line('avgWin', '#199e70', 1.8);
+    line('win', '#3987e5', 2.4);
   }
 
   // ---------- Brain view (redrawn ~8×/s) ----------
@@ -2662,9 +2668,8 @@
     setText('stat-genome', `${trainer.index + 1} / ${pop.genomes.length}`);
     setText('stat-best', Number.isFinite(trainer.bestEver) ? trainer.bestEver.toFixed(1) : '–');
     const last = trainer.history[trainer.history.length - 1];
-    setText('stat-champ', last ? last.cross.toFixed(2) : '–');
-    const shown = viewMode === 'turbo' ? trainer.showcase : trainer.match;
-    if(shown) setText('stat-longest', `${Math.max(shown.stats.longest, shown.rally).toFixed(1)} s`);
+    setText('stat-champ', last ? `${Math.round(last.win * 100)}%` : '–');
+    setText('stat-level', `${trainer.coachLevel} / ${COACH_MAX}`);
     setText('stat-species', String(Math.max(1, pop.species.length)));
     setText('stat-mutation', `${trainer.activeMutation.toFixed(1)}%`);
     const times = trainer.genTimes;
@@ -2700,7 +2705,10 @@
         do { trainSteps(120); } while(performance.now() - t0 < budget);
         acc += elapsed;
         let n = 0;
-        while(acc >= SIM_DT && n < 6){ trainer.showcase.step(SIM_DT); acc -= SIM_DT; n++; }
+        while(acc >= SIM_DT && n < 6){
+          trainer.showcase.step(SIM_DT); acc -= SIM_DT; n++;
+          if(trainer.showcase.done) resetShowcase();      // match finished: next one, newest champion
+        }
         if(n >= 6) acc = 0;
       } else {
         acc += elapsed * config.simSpeed;
@@ -2734,11 +2742,7 @@
     ['slElite', 'lbElite', 'elitism', (v)=> `${Math.round(v)}%`, 0.01],
     ['slAddConn', 'lbAddConn', 'addConnectionRate', (v)=> `${v}%`],
     ['slAddNode', 'lbAddNode', 'addNodeRate', (v)=> `${v}%`],
-    ['slArmBonus', 'lbArmBonus', 'armReward', (v)=> v.toFixed(1)],
-    ['slKickBonus', 'lbKickBonus', 'kickReward', (v)=> v.toFixed(1)],
-    ['slHeadPenalty', 'lbHeadPenalty', 'headPenalty', (v)=> v.toFixed(1)],
     ['slPlayersPerTeam', 'lbPlayersPerTeam', 'playersPerTeam', (v)=> `${v} / side`],
-    ['slBallCount', 'lbBallCount', 'ballCount', (v)=> `${v} ball${v === 1 ? '' : 's'}`],
     ['slBallRadius', 'lbBallRadius', 'ballRadius', (v)=> `${v}px`],
     ['slPlayerScale', 'lbPlayerScale', 'playerScale', (v)=> `${Math.round(v * 100)}%`],
     ['slJumpScale', 'lbJumpScale', 'jumpScale', (v)=> `${Math.round(v * 100)}%`],
@@ -2754,17 +2758,16 @@
       el.value = v;
       Q(lb).textContent = fmt(Number(el.value));
     }
-    Q('selMode').value = config.mode;
+    Q('selMatch').value = String(config.matchSets);
     Q('cbShowSensors').checked = !!config.showSensors;
     Q('cbShowHitboxes').checked = !!config.showHitboxes;
-    Q('selPreset').value = currentPreset;
     syncing = false;
   }
 
   function onSliderChange(key){
     updateDerived();
     // Team size and ball count change the court: rebuild matches (training brains are untouched).
-    if(key === 'playersPerTeam' || key === 'ballCount'){
+    if(key === 'playersPerTeam'){
       trainer.serves = newServeSet();
       startGenome();
       resetShowcase();
@@ -2781,10 +2784,6 @@
       Q(lb).textContent = fmt(raw);
       if(syncing) return;
       config[key] = mul ? raw * mul : raw;
-      if(key !== 'simSpeed'){
-        currentPreset = 'custom';
-        Q('selPreset').value = 'custom';
-      }
       onSliderChange(key);
     });
   }
@@ -2795,16 +2794,6 @@
     restartTraining();
   }
 
-  Q('selPreset').addEventListener('change', (e)=>{
-    const name = e.target.value;
-    if(!PRESETS[name]) return;
-    currentPreset = name;
-    applyConfig(PRESETS[name]);
-  });
-  Q('selMode').addEventListener('change', (e)=>{
-    config.mode = e.target.value;
-    restartTraining();
-  });
   Q('cbShowSensors').addEventListener('change', (e)=>{ config.showSensors = e.target.checked; });
   Q('cbShowHitboxes').addEventListener('change', (e)=>{ config.showHitboxes = e.target.checked; });
   Q('btnRestart').addEventListener('click', ()=>{
@@ -2812,8 +2801,7 @@
     restartTraining();
   });
   Q('btnResetDefaults').addEventListener('click', ()=>{
-    currentPreset = 'custom';
-    applyConfig(Object.assign({}, DEFAULT_CONFIG, {mode: config.mode}));
+    applyConfig(Object.assign({}, DEFAULT_CONFIG));
   });
 
   function setView(mode){
@@ -2821,8 +2809,8 @@
     Q('viewTurbo').classList.toggle('on', mode === 'turbo');
     Q('viewLive').classList.toggle('on', mode === 'live');
     Q('viewHint').textContent = mode === 'turbo'
-      ? 'Training runs in the background; the field shows the best brain so far.'
-      : 'Watching each genome as it is scored (25 s per serve, so scores stay comparable).';
+      ? 'Training runs in the background; the field shows a full match: champion (blue) vs coach (orange).'
+      : 'Watching each genome play its 12 training rallies against the coach.';
     if(trainer.match) trainer.match.display = mode === 'live';
     acc = 0;
   }
@@ -2858,12 +2846,7 @@
   Q('dim3').addEventListener('click', ()=> setDim('3d'));
   Q('selCamera').addEventListener('change', (e)=>{ if(view3d) view3d.setCamera(e.target.value); });
   Q('btnNewest').addEventListener('click', ()=>{ resetShowcase(); acc = 0; });
-  Q('btnEndless').addEventListener('click', ()=>{
-    config.endlessRally = !config.endlessRally;
-    const b = Q('btnEndless');
-    b.classList.toggle('on', config.endlessRally);
-    b.setAttribute('aria-pressed', String(config.endlessRally));
-  });
+  Q('selMatch').addEventListener('change', (e)=>{ config.matchSets = Number(e.target.value); resetShowcase(); acc = 0; });
 
   Q('viewTurbo').addEventListener('click', ()=> setView('turbo'));
   Q('viewLive').addEventListener('click', ()=> setView('live'));
@@ -2873,7 +2856,7 @@
   });
 
   // ---------- Save / load ----------
-  const SAVE_VERSION = 6;
+  const SAVE_VERSION = 7;
   function serializeGenome(g){
     return {
       nodes: Array.from(g.nodes.values()).map((n)=> [n.id, n.type, n.layer]),
@@ -2905,7 +2888,7 @@
         genomes: pop.genomes.map(serializeGenome)
       },
       champion: trainer.champion ? serializeGenome(trainer.champion) : null,
-      opponent: trainer.opponent ? serializeGenome(trainer.opponent) : null
+      coachLevel: trainer.coachLevel
     };
     try{
       const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
@@ -2930,7 +2913,6 @@
     }
     try{
       Object.assign(config, DEFAULT_CONFIG, data.config);
-      currentPreset = 'custom';
       syncControls();
       updateDerived();
       const pop = new Population(0, 0);
@@ -2943,7 +2925,8 @@
       trainer.bestEver = Number.isFinite(data.bestEver) ? data.bestEver : -Infinity;
       trainer.history = Array.isArray(data.history) ? data.history : [];
       trainer.champion = data.champion ? deserializeGenome(pop, data.champion) : null;
-      trainer.opponent = data.opponent ? deserializeGenome(pop, data.opponent) : null;
+      trainer.coachLevel = data.coachLevel || 1;
+      trainer.levelStreak = 0;
       trainer.championGen = data.championGen || 0;
       trainer.activeMutation = data.activeMutation || config.mutationRate;
       trainer.stagnant = 0;
@@ -2982,7 +2965,7 @@
   } catch(err){ /* stay in 2D */ }
 
   // Exposed for automated tests only.
-  window.__volley = {trainer, config, trainSteps, Match, makeServe, mulberry32, setDim, get view3d(){ return view3d; }};
+  window.__volley = {trainer, config, trainSteps, Match, Coach, makeServe, mulberry32, setDim, get view3d(){ return view3d; }};
   </script>
 </body>
 </html>

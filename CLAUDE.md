@@ -126,11 +126,15 @@ node <dataviz-skill>/scripts/validate_palette.js "#3987e5,#d95926,#199e70" \
   radius. Audit any physics change by stepping a `Match` headless and checking
   that no ball overlaps any capsule after a step, and that the gap at a touch
   is ~0.25 px.
-- The brain is shared by all players and mirrored (x and z) per team. In 3D,
-  evolution did not discover positioning from scratch, so genomes start with a
-  strong `Job x/z -> Move/Side` weight. Weaker starts or a bigger positioning
-  reward made rallies collapse in tests - check two independent runs (2D view,
-  60 s each) before changing either.
+- The brain is shared by all blue players and mirrored (x and z). It makes the
+  volleyball decisions only (spike or not, aim, side, power, pass, flip); running
+  to the ball or back to a home spot is code, and so is the timing of a spike
+  jump. Say so when describing it.
+- Training is against a coded **coach** (orange) with levels 1-8. Fitness is
+  points won/lost; rallies cut off at 30 s count for neither side. The champion
+  is re-checked on 24 fresh rallies each generation and the coach levels up at
+  70% of at least 12 decided rallies. Measure learning by playing the same serves
+  with generation-1 brains and the champion (start brains ~50% vs level 1).
 - Volleyball rules are code: serve from behind the end line, max three touches,
   no double contact, antennas, out on lines/walls/ceiling, rally scoring, sets
   to 25 by 2, side-out rotation. The brain decides pass-or-attack per touch;
