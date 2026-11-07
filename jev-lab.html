@@ -521,6 +521,28 @@
   }
   .ins-xml .t { color: #7cc4ff; } .ins-xml .a { color: #a5e3c6; } .ins-xml .s { color: #ffd29a; }
   @media (prefers-reduced-motion: reduce) { .ins-tile.scan, .ins-tile.top { animation: none; } }
+
+  /* --- volleyball ------------------------------------------------------ */
+  canvas#voStage {
+    display: block; width: 100%; aspect-ratio: 1000 / 430; margin-top: 14px;
+    background: var(--surface-2); border: 1px solid var(--grid); border-radius: 16px;
+  }
+  .vo-log {
+    margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px;
+  }
+  .vo-log:empty { display: none; }
+  .vo-row {
+    background: var(--surface-2); border-radius: 12px; padding: 10px 12px; font-size: 12px;
+    border-left: 3px solid var(--grid); animation: voIn .3s ease-out 1;
+  }
+  .vo-row.left { border-left-color: var(--incident); }
+  .vo-row.right { border-left-color: var(--request); }
+  .vo-row .what { font-weight: 700; color: var(--ink-1); font-size: 13px; }
+  .vo-row .why { color: var(--ink-2); margin-top: 3px; line-height: 1.45; }
+  .vo-row .meta { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; margin-top: 4px; }
+  .vo-row.fault .what { color: var(--critical); }
+  @keyframes voIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .vo-row { animation: none; } }
 </style>
 </head>
 <body>
@@ -545,6 +567,7 @@
     <a href="#sec-dups">Duplicates</a>
     <a href="#sec-belt">The belt</a>
     <a href="#sec-inspire">Template desk</a>
+    <a href="#sec-volley">Volleyball</a>
     <a href="#sec-bench">Benchmark</a>
   </nav>
 
@@ -939,6 +962,76 @@
       another customer. Tick <em>Show the answer key</em> to see which lit tiles
       were right. Only which templates were found is scored; a question you write
       yourself has no key, so it is shown and not graded.
+    </div>
+  </div>
+
+  <div class="panel" id="sec-volley">
+    <h2>Beach volleyball — Jev calls every touch</h2>
+    <div class="controls">
+      <button class="primary" id="voRun">Serve</button>
+      <button id="voStop">Stop</button>
+      <button id="voReset">New match</button>
+      <div class="field">
+        <label for="voLeft">Left team</label>
+        <select id="voLeft"><option value="jev" selected>Jev</option><option value="rules">Rules</option></select>
+      </div>
+      <div class="field">
+        <label for="voRight">Right team</label>
+        <select id="voRight"><option value="jev">Jev</option><option value="rules" selected>Rules</option></select>
+      </div>
+      <div class="field">
+        <label for="voSpeed">Game speed <span id="voSpeedVal" class="mono">1.0×</span></label>
+        <input type="range" id="voSpeed" min="5" max="40" value="10" step="1">
+      </div>
+    </div>
+
+    <canvas id="voStage" aria-label="Side-on volleyball court where every touch is a decision"></canvas>
+
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="label">Score</div><div class="value" id="voScore">0 – 0</div><div class="sub" id="voScoreSub">left – right</div></div>
+      <div class="kpi"><div class="label">Decisions</div><div class="value" id="voDec">0</div><div class="sub" id="voDecSub">one per touch</div></div>
+      <div class="kpi"><div class="label">Per decision</div><div class="value" id="voLat">—</div><div class="sub">round trip</div></div>
+      <div class="kpi"><div class="label">Decided in the air</div><div class="value" id="voAir">—</div><div class="sub">answer back before the touch</div></div>
+      <div class="kpi"><div class="label">Held for Jev</div><div class="value" id="voHeld">0.0 s</div><div class="sub">ball frozen, waiting</div></div>
+      <div class="kpi"><div class="label">Longest rally</div><div class="value" id="voRally">0</div><div class="sub">touches</div></div>
+    </div>
+    <div class="status" id="voStatus">Press Serve.</div>
+
+    <div class="vo-log" id="voLog"></div>
+
+    <div class="note">
+      <strong>What is decided.</strong> Every time a player is about to touch the ball,
+      Jev is asked one <strong>choice</strong>: play it up to a named teammate, or send it
+      over — short behind the net, mid-court, deep to the back line, or a slow high lob.
+      It is told whose touch it is, how many touches its side has left, and where every
+      player on both sides is standing, in metres from the net. The question goes out the
+      moment the ball is struck towards that player, so it is answered while the ball is
+      still in the air.
+      <br><br>
+      <strong>The pause is real.</strong> If the answer is not back by the time the ball
+      arrives, the ball stops dead and a ring pulses around it until it is. Nothing is
+      guessed in the meantime. Turn the game speed up and flight times shrink below the
+      round trip — "Decided in the air" falls and "Held for Jev" climbs. That is the
+      model's actual latency, made visible.
+      <br><br>
+      <strong>What is ordinary code.</strong> Running to the ball, who chases it, the
+      flight of the ball, the net, the lines and the score. A shot is aimed at the
+      chosen spot with a little random error, so a deep attack can sail out and a short
+      one can catch the net. Code also enforces the rules: a fourth touch on one side
+      loses the point, and Jev is told the limit rather than protected from it.
+      <br><br>
+      <strong>Reading the other side is worth points.</strong> "Rules" is a fixed
+      playbook: pass to whoever is nearest the net, then attack deep. It never looks at
+      the opponents. Checked over 3,000 simulated points, a player who builds the same
+      way but aims for the gap between the two defenders wins about 69% of them against
+      it — so a call that reads the court has something real to win. Nothing here has
+      an answer key; the measure is points, and the log under the court shows what each
+      call was made from.
+      <br><br>
+      <strong>Why it is not the original.</strong> <a href="Vollyball.html">The volleyball
+      simulation</a> evolves a network that moves each player sixty times a second. A
+      round trip cannot steer a body frame by frame, so this hands Jev the call a coach
+      would make at each touch, and leaves the running to code.
     </div>
   </div>
 
@@ -3899,6 +3992,611 @@ $('insDetailClose').addEventListener('click', () => { $('insDetail').style.displ
 insBuildWall();
 insPresets();
 insPaint();
+
+/* --- volleyball -------------------------------------------------------
+ *
+ * Side-on court, two teams, real ball flight. At every touch one choice is
+ * made: play it up to a named teammate, or send it over - short, mid, deep or
+ * a high lob. For a Jev team that choice is a request, sent the moment the
+ * ball is struck towards the player, so it is answered in the air. If it is
+ * not back when the ball arrives, the ball is held until it is.
+ *
+ * Everything else is ordinary code: who chases, running, the flight, the
+ * net, the lines, the rules and the score. Shots carry a little random error.
+ */
+const VO_W = 1000, VO_H = 430;
+// Real proportions at about 51 px to the metre: a 2.43 m net, a standing
+// reach just under it and a jumping reach well over it. Players near the net
+// jump for the ball; players further back take it standing and have to send
+// it up and over.
+const VO_FLOOR = 400, VO_NET_X = 500, VO_NET_TOP = 400 - 124;
+const VO_LINE_L = 30, VO_LINE_R = 970;
+const VO_PX_M = (VO_NET_X - VO_LINE_L) / 9;     // a half court is 9 m
+const VO_CONTACT_Y = VO_FLOOR - 110;            // standing, hands above the head
+const VO_JUMP_Y = VO_FLOOR - 165;               // jumping, above the net
+const VO_JUMP_ZONE = 3.5;                       // metres from the net within which players jump
+const voContactY = x => (voMetres(x) < VO_JUMP_ZONE ? VO_JUMP_Y : VO_CONTACT_Y);
+const VO_G = 980;
+const VO_RUN = 330;                             // px per second, chasing
+const VO_DRIFT = 0.4;                           // walking back to position, as a share of that
+const VO_REACT = 0.14;                          // seconds before the receiver starts to run
+const VO_REACH = 30;
+const VO_SUBSTEP = 1 / 240;
+
+const voStage = $('voStage');
+const vctx = voStage.getContext('2d');
+
+const vo = {
+  running: false, match: null, rally: null, last: 0,
+  decisions: 0, byJev: 0, byRules: 0, latencies: [], inAir: 0, jevTouches: 0,
+  heldMs: 0, longest: 0, log: [], seq: 0
+};
+
+const voSide = x => (x < VO_NET_X ? 'left' : 'right');
+const voOther = s => (s === 'left' ? 'right' : 'left');
+const voMetres = (x) => Math.abs(x - VO_NET_X) / VO_PX_M;
+const voXAt = (side, m) => side === 'left' ? VO_NET_X - m * VO_PX_M : VO_NET_X + m * VO_PX_M;
+function voGauss() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+
+// Two a side, as in beach volleyball. Three a side was tried and covers the
+// whole court: rallies ran to hundreds of touches and placement stopped
+// mattering, which is the one thing this experiment is about.
+const VO_HOMES = [2.4, 6.6];
+
+function voNewMatch() {
+  const players = [];
+  ['left', 'right'].forEach(side => {
+    VO_HOMES.forEach((m, k) => {
+      const x = voXAt(side, m);
+      players.push({ side, name: (side === 'left' ? 'L' : 'R') + (k + 1), x, home: x, bubble: null });
+    });
+  });
+  vo.match = { players, score: { left: 0, right: 0 }, serving: 'left' };
+  vo.decisions = vo.byJev = vo.byRules = vo.inAir = vo.jevTouches = 0;
+  vo.latencies = []; vo.heldMs = 0; vo.longest = 0; vo.log = [];
+  voRenderLog();
+  voNewRally();
+}
+
+function voNewRally() {
+  const m = vo.match;
+  m.players.forEach(p => { p.x = p.home; p.bubble = null; });
+  const team = m.players.filter(p => p.side === m.serving);
+  const server = team.reduce((a, b) => (voMetres(a.home) > voMetres(b.home) ? a : b));
+  server.x = voXAt(m.serving, 8.6);
+  vo.rally = {
+    id: ++vo.seq, phase: 'serve', server, toss: 0,
+    ball: { x: server.x, y: VO_CONTACT_Y - 18, vx: 0, vy: 0 },
+    trail: [], touches: { left: 0, right: 0 }, lastTeam: m.serving, count: 0,
+    receiver: null, touchNo: 3, call: null, hold: false, aim: null, over: 0
+  };
+  // The serve is asked for when play starts, not here: a new match must not
+  // spend a request before anyone has pressed Serve.
+}
+
+/* --- the decision ---------------------------------------------------- */
+
+function voOptions(player, touchNo, serve) {
+  const opts = {};
+  if (!serve && touchNo < 3) {
+    vo.match.players.filter(p => p.side === player.side && p !== player).forEach(p => {
+      opts['set_' + p.name] = 'Play it up to ' + p.name + ' (' + voMetres(p.x).toFixed(1) +
+        ' m from the net) to take the next touch. Only legal while the side has a touch left after this one.';
+    });
+  }
+  opts.attack_short = 'Send it over hard and short, landing about 1.5 m behind the net. Wins the point ' +
+    'when every opponent is deep; easy to dig if one is standing near the net.';
+  opts.attack_mid = 'Send it over to mid-court, about 4.5 m behind the net. Hard to reach for an ' +
+    'opponent at either end, easy for one standing in the middle.';
+  opts.attack_deep = 'Send it over hard to the back line, about 8 m behind the net. Beats opponents ' +
+    'near the net, but it can land out.';
+  opts.lob_deep = 'Send a slow, high ball to the back of their court. Safe, but it gives them time to reach it.';
+  return opts;
+}
+
+function voState(player, touchNo, serve) {
+  const m = vo.match;
+  return {
+    you: {
+      name: player.name, metres_from_net: +voMetres(player.x).toFixed(1),
+      touch_number: touchNo, touches_left_after_this: serve ? 0 : 3 - touchNo,
+      serving: !!serve
+    },
+    rule: 'A side may touch the ball at most three times before it crosses the net. ' +
+          'A fourth touch, or a ball landing outside the court, loses the point.',
+    teammates: m.players.filter(p => p.side === player.side && p !== player)
+      .map(p => ({ name: p.name, metres_from_net: +voMetres(p.x).toFixed(1) })),
+    opponents: m.players.filter(p => p.side !== player.side)
+      .map(p => ({ name: p.name, metres_from_net: +voMetres(p.x).toFixed(1) })),
+    score: { your_team: m.score[player.side], opponents: m.score[voOther(player.side)] }
+  };
+}
+
+function voRules(player, touchNo, serve) {
+  // A fixed playbook: build up through the player nearest the net, then go
+  // deep. It never looks at where the other side is standing.
+  if (serve || touchNo >= 3) return 'attack_deep';
+  const mates = vo.match.players.filter(p => p.side === player.side && p !== player);
+  const front = mates.reduce((a, b) => (voMetres(a.x) < voMetres(b.x) ? a : b));
+  return 'set_' + front.name;
+}
+
+function voAsk(player, touchNo, serve) {
+  const r = vo.rally;
+  const team = $(player.side === 'left' ? 'voLeft' : 'voRight').value;
+  const call = { player, touchNo, serve, ready: false, choice: null, by: team, id: r.id,
+                 state: voState(player, touchNo, serve), started: performance.now() };
+  r.call = call;
+  player.bubble = { text: '…', pending: true, t: 0 };
+
+  if (team === 'rules') {
+    call.choice = voRules(player, touchNo, serve);
+    call.ready = true; call.latency = 0;
+    return;
+  }
+
+  const options = voOptions(player, touchNo, serve);
+  const questions = {
+    play: {
+      type: 'choice',
+      instructions: 'Player `you.name` is about to touch the ball' +
+        (serve ? ' to serve. The serve must go over the net.' :
+         '. It is touch number `you.touch_number` for their side.') +
+        ' Looking at where `teammates` and `opponents` are standing, which play should they make?',
+      criteria: options
+    }
+  };
+  fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ state: call.state, questions })
+  }).then(async res => {
+    const text = await res.text();
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const ans = (JSON.parse(text).answers || {}).play;
+    call.latency = performance.now() - call.started;
+    call.confidence = ans && typeof ans.confidence === 'number' ? ans.confidence : null;
+    // An answer outside the options is not quietly mapped to something; the
+    // play is a safe lob and the log says there was no usable answer.
+    call.choice = ans && options[ans.choice] ? ans.choice : null;
+    call.unusable = !call.choice;
+    if (!call.choice) call.choice = 'lob_deep';
+    call.ready = true;
+  }).catch(err => {
+    if (vo.rally && vo.rally.id === call.id) {
+      vo.running = false;
+      voStatus('A decision request failed (' + err.message + '). This needs the api/typesafe proxy.', true);
+    }
+  });
+}
+
+/* --- shots ----------------------------------------------------------- */
+
+function voShoot(ball, tx, ty, times, crosses) {
+  // The listed flight times first - fast is better - then longer and longer
+  // until the ball clears the net. An earlier version fell back to the last
+  // listed time when none cleared, which sent every attack from the back of
+  // the court into the net.
+  const all = times.slice();
+  for (let T = times[times.length - 1] + 0.05; T <= 2.6; T += 0.05) all.push(T);
+  for (const T of all) {
+    const vx = (tx - ball.x) / T;
+    const vy = (ty - ball.y - 0.5 * VO_G * T * T) / T;
+    if (!crosses) return { vx, vy };
+    const tn = (VO_NET_X - ball.x) / vx;
+    const yNet = ball.y + vy * tn + 0.5 * VO_G * tn * tn;
+    if (tn > 0 && yNet < VO_NET_TOP - 16) return { vx, vy };
+  }
+  const T = all[all.length - 1];
+  return { vx: (tx - ball.x) / T, vy: (ty - ball.y - 0.5 * VO_G * T * T) / T };
+}
+
+const VO_PLAYS = {
+  // Attacks are fast - the shortest flight that still clears the net - so a
+  // ball placed away from a defender is a winner and one placed at them is not.
+  attack_short: { m: 1.5, sd: 0.45, times: [0.4, 0.48, 0.58, 0.7, 0.85], label: 'Short' },
+  attack_mid:   { m: 4.5, sd: 0.55, times: [0.42, 0.5, 0.6, 0.72, 0.85], label: 'Mid-court' },
+  attack_deep:  { m: 7.9, sd: 0.7,  times: [0.45, 0.55, 0.65, 0.78, 0.9], label: 'Deep' },
+  lob_deep:     { m: 7.4, sd: 0.5,  times: [1.5, 1.65, 1.8], label: 'Lob' }
+};
+
+function voExecute() {
+  const r = vo.rally, call = r.call, p = call.player, ball = r.ball;
+  const side = p.side;
+  r.count++;
+  vo.longest = Math.max(vo.longest, r.count);
+  vo.decisions++;
+  if (call.by === 'jev') {
+    vo.byJev++; vo.jevTouches++;
+    vo.latencies.push(call.latency); if (vo.latencies.length > 40) vo.latencies.shift();
+    if (call.inAir) vo.inAir++;
+  } else vo.byRules++;
+
+  const choice = call.choice;
+  voLogCall(call);
+  r.touches[side] = call.touchNo;
+  r.lastTeam = side;
+  r.hold = false; r.call = null;
+
+  if (choice.startsWith('set_')) {
+    if (call.touchNo >= 3) return voPoint(voOther(side), 'fourth touch by ' + p.name);
+    const mate = vo.match.players.find(q => q.name === choice.slice(4));
+    p.bubble = { text: '→ ' + mate.name, t: 1.1 };
+    const tx = mate.x + voGauss() * 0.35 * VO_PX_M;
+    Object.assign(ball, voShoot(ball, tx, voContactY(mate.x), [0.95], false));
+    r.aim = null;
+    voAssign(mate);
+    return;
+  }
+
+  const play = VO_PLAYS[choice];
+  p.bubble = { text: play.label, t: 1.1 };
+  const target = voXAt(voOther(side), play.m + voGauss() * play.sd);
+  r.aim = { x: target, t: 1.2 };
+  Object.assign(ball, voShoot(ball, target, VO_FLOOR, play.times, true));
+  ball.vy *= 1 + voGauss() * 0.02;
+  voAssign(null);
+}
+
+/* Who takes the next touch: where the ball comes down to hand height decides
+ * the side, and the nearest player there chases it. Code, not the model. */
+function voLandX(b, y) {
+  const disc = b.vy * b.vy + 2 * VO_G * (y - b.y);
+  if (disc < 0) return null;
+  return b.x + b.vx * ((-b.vy + Math.sqrt(disc)) / VO_G);
+}
+
+function voAssign(mate) {
+  const r = vo.rally, b = r.ball;
+  let xp = voLandX(b, VO_CONTACT_Y);
+  if (xp == null) { r.receiver = null; return; }
+  // Taken near the net it is taken in the air, which is earlier and further back.
+  if (voMetres(xp) < VO_JUMP_ZONE) { const xj = voLandX(b, VO_JUMP_Y); if (xj != null && voSide(xj) === voSide(xp)) xp = xj; }
+  r.predict = xp;
+  r.contactY = voContactY(xp);
+  if (xp < VO_LINE_L || xp > VO_LINE_R) { r.receiver = null; return; }  // going out: let it
+  const side = voSide(xp);
+  const receiver = mate || vo.match.players.filter(p => p.side === side)
+    .reduce((a, q) => (Math.abs(q.x - xp) < Math.abs(a.x - xp) ? q : a));
+  r.receiver = receiver;
+  r.chaseFrom = (r.t || 0) + VO_REACT;
+  const touchNo = side === r.lastTeam ? r.touches[side] + 1 : 1;
+  voAsk(receiver, touchNo, false);
+}
+
+function voPoint(winner, why) {
+  const r = vo.rally;
+  if (r.phase === 'over') return;
+  r.phase = 'over'; r.over = 1.3; r.hold = false;
+  vo.match.score[winner]++;
+  vo.match.serving = winner;
+  vo.log.unshift({ side: winner, fault: true,
+    what: 'Point ' + (winner === 'left' ? 'left' : 'right'), why: why, meta: r.count + ' touches in the rally' });
+  vo.log = vo.log.slice(0, 6);
+  voRenderLog();
+}
+
+/* --- the frame ------------------------------------------------------- */
+
+function voStep(dtReal) {
+  const r = vo.rally;
+  if (!r) return;
+  const dt = dtReal * parseInt($('voSpeed').value, 10) / 10;
+
+  vo.match.players.forEach(p => {
+    if (p.bubble && !p.bubble.pending) { p.bubble.t -= dtReal; if (p.bubble.t <= 0) p.bubble = null; }
+  });
+  if (r.aim) { r.aim.t -= dtReal; if (r.aim.t <= 0) r.aim = null; }
+
+  if (r.phase === 'over') {
+    r.over -= dt;
+    if (r.over <= 0) voNewRally();
+    return;
+  }
+
+  // Waiting on the model: the ball does not move, and the time is counted.
+  if (r.hold) {
+    vo.heldMs += dtReal * 1000;
+    if (r.call && r.call.ready) voExecute();
+    return;
+  }
+
+  if (r.phase === 'serve') {
+    if (!r.call) voAsk(r.server, 3, true);
+    r.toss += dt;
+    if (r.toss >= 0.6) {
+      if (!r.call.ready) { r.hold = true; return; }
+      if (r.call.by === 'jev') r.call.inAir = true;
+      r.phase = 'play';
+      voExecute();
+    }
+    return;
+  }
+
+  // Physics in small steps. One frame at 4x is a fifth of a second of play,
+  // long enough for the ball to pass straight through hand height between
+  // two checks - every dig then misses, and whoever is serving wins every
+  // point. Substeps keep the outcome the same at any game speed.
+  const n = Math.max(1, Math.ceil(dt / VO_SUBSTEP));
+  for (let k = 0; k < n; k++) {
+    if (voPhysics(dt / n) || r.hold || r.phase !== 'play' || vo.rally !== r) return;
+  }
+}
+
+/* One substep of play. Returns true when the rally changed hands - a touch
+ * was made or the ball landed - so the caller stops stepping. */
+function voPhysics(dt) {
+  const r = vo.rally, b = r.ball;
+  r.t = (r.t || 0) + dt;
+  const px = b.x;
+  b.vy += VO_G * dt;
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  r.trailT = (r.trailT || 0) + dt;
+  if (r.trailT > 1 / 60) { r.trailT = 0; r.trail.push({ x: b.x, y: b.y }); if (r.trail.length > 16) r.trail.shift(); }
+
+  // The net: a ball crossing below its top drops back on the hitter's side.
+  if ((px - VO_NET_X) * (b.x - VO_NET_X) < 0 && b.y > VO_NET_TOP - 6) {
+    b.x = px; b.vx = -b.vx * 0.2; r.receiver = null; r.netted = true;
+    if (r.call) r.call = null;
+  }
+
+  // Runners: the receiver to where the ball will come down once they have
+  // reacted; everyone else walks back towards position, slowly enough that
+  // the last play leaves them out of place - which is what makes reading the
+  // other side worth anything.
+  vo.match.players.forEach(p => {
+    let goal = p.home, speed = VO_RUN * VO_DRIFT;
+    if (p === r.receiver && r.t >= (r.chaseFrom || 0)) {
+      const xg = voLandX(b, r.contactY || VO_CONTACT_Y);
+      if (xg != null) goal = xg;
+      speed = VO_RUN;
+    } else if (p === r.receiver) {
+      goal = p.x;
+    }
+    const lo = p.side === 'left' ? VO_LINE_L - 20 : VO_NET_X + 18;
+    const hi = p.side === 'left' ? VO_NET_X - 18 : VO_LINE_R + 20;
+    goal = Math.max(lo, Math.min(hi, goal));
+    const d = goal - p.x, st = speed * dt;
+    p.x += Math.abs(d) <= st ? d : Math.sign(d) * st;
+  });
+
+  // The touch.
+  const rc = r.receiver;
+  const cy = r.contactY || VO_CONTACT_Y;
+  if (rc && b.vy > 0 && b.y >= cy && Math.abs(b.x - rc.x) < VO_REACH) {
+    b.y = cy;
+    if (r.call && r.call.player === rc) {
+      if (!r.call.ready) { r.hold = true; return true; }
+      if (r.call.by === 'jev') r.call.inAir = true;
+      voExecute();
+      return true;
+    }
+  }
+  // Missed only once it is falling past them: a ball that starts below the
+  // receiver's reach is still on its way up, not gone.
+  if (rc && b.vy > 0 && b.y > cy + 40) r.receiver = null;
+
+  if (b.y >= VO_FLOOR) {
+    b.y = VO_FLOOR;
+    if (b.x < VO_LINE_L || b.x > VO_LINE_R) {
+      voPoint(voOther(r.lastTeam), 'out — ' + (r.lastTeam === 'left' ? 'left' : 'right') + ' hit it long');
+    } else {
+      const landed = voSide(b.x);
+      voPoint(voOther(landed), r.netted ? 'into the net' :
+        'landed ' + voMetres(b.x).toFixed(1) + ' m from the net on the ' + landed + ' side');
+    }
+    return true;
+  }
+  return false;
+}
+
+function voLogCall(call) {
+  const p = call.player, choice = call.choice;
+  const what = choice.startsWith('set_') ? p.name + ' sets to ' + choice.slice(4)
+    : p.name + ' ' + (call.serve ? 'serves ' : 'plays ') + VO_PLAYS[choice].label.toLowerCase();
+  const opp = call.state.opponents.map(o => o.name + ' ' + o.metres_from_net + ' m').join(', ');
+  vo.log.unshift({
+    side: p.side,
+    what: (call.unusable ? 'No usable answer — ' : '') + what,
+    why: 'Touch ' + call.touchNo + (call.serve ? ' (serve)' : '') + '. Opponents at ' + opp + '.',
+    meta: call.by === 'jev'
+      ? 'Jev · ' + Math.round(call.latency) + ' ms' + (call.confidence != null ? ' · ' + Math.round(call.confidence * 100) + '% sure' : '') +
+        (call.inAir ? ' · in the air' : ' · held')
+      : 'Rules · playbook'
+  });
+  vo.log = vo.log.slice(0, 6);
+  voRenderLog();
+}
+
+function voRenderLog() {
+  $('voLog').innerHTML = vo.log.map(l =>
+    '<div class="vo-row ' + l.side + (l.fault ? ' fault' : '') + '"><div class="what">' + escapeHtml(l.what) +
+    '</div><div class="why">' + escapeHtml(l.why) + '</div><div class="meta">' + escapeHtml(l.meta) + '</div></div>').join('');
+}
+
+/* --- drawing --------------------------------------------------------- */
+
+function voDraw() {
+  const ratio = devicePixelRatio || 1;
+  const cw = voStage.clientWidth, ch = voStage.clientHeight;
+  if (voStage.width !== Math.round(cw * ratio)) {
+    voStage.width = Math.round(cw * ratio); voStage.height = Math.round(ch * ratio);
+  }
+  const k = (cw / VO_W) * ratio;
+  vctx.setTransform(k, 0, 0, k, 0, 0);
+  vctx.clearRect(0, 0, VO_W, VO_H);
+  const m = vo.match, r = vo.rally;
+  if (!m) return;
+
+  // court
+  vctx.fillStyle = cssVar('--surface-1');
+  vctx.fillRect(VO_LINE_L, VO_FLOOR, VO_LINE_R - VO_LINE_L, 8);
+  vctx.fillStyle = cssVar('--axis');
+  vctx.fillRect(0, VO_FLOOR + 8, VO_W, 2);
+  [VO_LINE_L, VO_LINE_R].forEach(x => { vctx.fillRect(x - 1, VO_FLOOR, 2, 10); });
+
+  // net
+  vctx.fillStyle = cssVar('--ink-2');
+  vctx.fillRect(VO_NET_X - 3, VO_NET_TOP, 6, VO_FLOOR - VO_NET_TOP);
+  vctx.fillStyle = voAlpha(cssVar('--ink-3'), 0.18);
+  vctx.fillRect(VO_NET_X - 9, VO_NET_TOP, 18, 64);
+  vctx.strokeStyle = voAlpha(cssVar('--ink-3'), 0.5); vctx.lineWidth = 1;
+  for (let y = VO_NET_TOP; y <= VO_NET_TOP + 64; y += 8) {
+    vctx.beginPath(); vctx.moveTo(VO_NET_X - 9, y); vctx.lineTo(VO_NET_X + 9, y); vctx.stroke();
+  }
+  vctx.fillStyle = cssVar('--ink-1');
+  vctx.fillRect(VO_NET_X - 10, VO_NET_TOP - 3, 20, 4);
+
+  // score
+  vctx.textAlign = 'center';
+  ['left', 'right'].forEach(side => {
+    const x = side === 'left' ? VO_NET_X - 120 : VO_NET_X + 120;
+    vctx.fillStyle = cssVar(side === 'left' ? '--incident' : '--request');
+    vctx.font = '700 11px ' + cssVar('--ui');
+    vctx.fillText(($(side === 'left' ? 'voLeft' : 'voRight').value === 'jev' ? 'JEV' : 'RULES'), x, 34);
+    vctx.fillStyle = cssVar('--ink-1');
+    vctx.font = '800 40px ' + cssVar('--ui');
+    vctx.fillText(String(m.score[side]), x, 76);
+  });
+
+  // aimed spot
+  if (r && r.aim) {
+    vctx.strokeStyle = voAlpha(cssVar('--ink-3'), Math.min(1, r.aim.t));
+    vctx.lineWidth = 2;
+    vctx.beginPath();
+    vctx.moveTo(r.aim.x - 7, VO_FLOOR - 7); vctx.lineTo(r.aim.x + 7, VO_FLOOR + 7);
+    vctx.moveTo(r.aim.x + 7, VO_FLOOR - 7); vctx.lineTo(r.aim.x - 7, VO_FLOOR + 7);
+    vctx.stroke();
+  }
+
+  // players
+  m.players.forEach(p => {
+    const col = cssVar(p.side === 'left' ? '--incident' : '--request');
+    const cy = (r && r.contactY) || VO_CONTACT_Y;
+    const reaching = r && r.receiver === p && r.ball.y > cy - 80;
+    // Taking it above the net means being in the air for it.
+    const lift = reaching && cy === VO_JUMP_Y ? Math.min(1, (r.ball.y - (cy - 80)) / 60) * (VO_CONTACT_Y - VO_JUMP_Y) : 0;
+    const x = p.x, foot = VO_FLOOR - lift;
+    vctx.strokeStyle = col; vctx.lineCap = 'round'; vctx.lineWidth = 7;
+    // legs
+    vctx.beginPath(); vctx.moveTo(x - 8, foot); vctx.lineTo(x - 4, foot - 34);
+    vctx.moveTo(x + 8, foot); vctx.lineTo(x + 4, foot - 34); vctx.stroke();
+    // body
+    vctx.fillStyle = col;
+    vctx.beginPath(); vctx.roundRect(x - 13, foot - 72, 26, 42, 10); vctx.fill();
+    // arms: up when the ball is coming to them
+    vctx.lineWidth = 6;
+    vctx.beginPath();
+    if (reaching) {
+      vctx.moveTo(x - 9, foot - 66); vctx.lineTo(x - 5, Math.min(foot - 70, cy + 4));
+      vctx.moveTo(x + 9, foot - 66); vctx.lineTo(x + 5, Math.min(foot - 70, cy + 4));
+    } else {
+      vctx.moveTo(x - 12, foot - 66); vctx.lineTo(x - 20, foot - 40);
+      vctx.moveTo(x + 12, foot - 66); vctx.lineTo(x + 20, foot - 40);
+    }
+    vctx.stroke();
+    // head
+    vctx.fillStyle = cssVar('--surface-1');
+    vctx.strokeStyle = col; vctx.lineWidth = 3;
+    vctx.beginPath(); vctx.arc(x, foot - 84, 10, 0, Math.PI * 2); vctx.fill(); vctx.stroke();
+    // name
+    vctx.fillStyle = cssVar('--ink-3');
+    vctx.font = '600 10px ' + cssVar('--mono');
+    vctx.fillText(p.name, x, VO_FLOOR + 24);
+
+    // the call
+    if (p.bubble) {
+      const txt = p.bubble.text;
+      vctx.font = '700 12px ' + cssVar('--ui');
+      const w = Math.max(28, vctx.measureText(txt).width + 18);
+      const by = foot - 132;
+      vctx.fillStyle = p.bubble.pending ? cssVar('--surface-1') : col;
+      vctx.strokeStyle = p.bubble.pending ? cssVar('--warning') : col;
+      vctx.lineWidth = 2;
+      vctx.beginPath(); vctx.roundRect(x - w / 2, by - 12, w, 24, 12); vctx.fill(); vctx.stroke();
+      vctx.fillStyle = p.bubble.pending ? cssVar('--warning') : '#fff';
+      vctx.fillText(txt, x, by + 4);
+    }
+  });
+
+  // ball
+  if (r) {
+    r.trail.forEach((t, i) => {
+      vctx.fillStyle = voAlpha(cssVar('--ink-3'), (i / r.trail.length) * 0.25);
+      vctx.beginPath(); vctx.arc(t.x, t.y, 6 * (i / r.trail.length), 0, Math.PI * 2); vctx.fill();
+    });
+    const b = r.ball;
+    if (r.hold) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 140);
+      vctx.strokeStyle = cssVar('--warning'); vctx.lineWidth = 3;
+      vctx.globalAlpha = 0.35 + 0.55 * pulse;
+      vctx.beginPath(); vctx.arc(b.x, b.y, 18 + 6 * pulse, 0, Math.PI * 2); vctx.stroke();
+      vctx.globalAlpha = 1;
+      vctx.fillStyle = cssVar('--warning');
+      vctx.font = '700 11px ' + cssVar('--ui');
+      vctx.fillText('waiting on Jev', b.x, b.y - 30);
+    }
+    vctx.fillStyle = '#fff';
+    vctx.strokeStyle = cssVar('--ink-1'); vctx.lineWidth = 2;
+    vctx.beginPath(); vctx.arc(b.x, b.y, 9, 0, Math.PI * 2); vctx.fill(); vctx.stroke();
+    vctx.strokeStyle = cssVar('--warning'); vctx.lineWidth = 1.5;
+    vctx.beginPath(); vctx.arc(b.x, b.y, 9, -0.6, 1.2); vctx.stroke();
+  }
+}
+
+/* A token colour with an alpha, for marks that should recede. */
+function voAlpha(hex, a) {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')';
+}
+
+function voStats() {
+  const m = vo.match;
+  if (!m) return;
+  $('voScore').textContent = m.score.left + ' – ' + m.score.right;
+  $('voScoreSub').textContent = ($('voLeft').value === 'jev' ? 'Jev' : 'Rules') + ' – ' +
+                                ($('voRight').value === 'jev' ? 'Jev' : 'Rules');
+  $('voDec').textContent = vo.decisions;
+  $('voDecSub').textContent = vo.byJev + ' by Jev, ' + vo.byRules + ' by rules';
+  $('voLat').textContent = vo.latencies.length
+    ? Math.round(vo.latencies.reduce((a, b) => a + b, 0) / vo.latencies.length) + ' ms' : '—';
+  $('voAir').textContent = vo.jevTouches ? Math.round((vo.inAir / vo.jevTouches) * 100) + '%' : '—';
+  $('voHeld').textContent = (vo.heldMs / 1000).toFixed(1) + ' s';
+  $('voRally').textContent = vo.longest;
+}
+
+function voStatus(msg, err) {
+  $('voStatus').textContent = msg;
+  $('voStatus').classList.toggle('err', !!err);
+}
+
+function voFrame(ts) {
+  const dt = Math.min(0.05, (ts - vo.last) / 1000 || 0);
+  vo.last = ts;
+  if (vo.running) voStep(dt);
+  voDraw();
+  voStats();
+  requestAnimationFrame(voFrame);
+}
+
+$('voRun').addEventListener('click', () => {
+  if (!vo.match) voNewMatch();
+  vo.running = true;
+  voStatus('Playing. Every touch is a call; a Jev call is asked the moment the ball is struck.');
+});
+$('voStop').addEventListener('click', () => { vo.running = false; voStatus('Stopped.'); });
+$('voReset').addEventListener('click', () => { vo.running = false; voNewMatch(); voStatus('New match. Press Serve.'); });
+['voLeft', 'voRight'].forEach(id => $(id).addEventListener('change', () => {
+  vo.running = false; voNewMatch(); voStatus('New match. Press Serve.');
+}));
+$('voSpeed').addEventListener('input', () => {
+  $('voSpeedVal').textContent = (parseInt($('voSpeed').value, 10) / 10).toFixed(1) + '×';
+});
+
+voNewMatch();
+requestAnimationFrame(voFrame);
 
 fetch(PROXY, { headers: { Accept: 'application/json' } })
   .then(r => r.ok ? r.json() : Promise.reject())

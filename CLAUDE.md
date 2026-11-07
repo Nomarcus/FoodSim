@@ -98,6 +98,13 @@ boundary, because the user presents this to an audience:
   relevance has a key, so only "found" is scored. The answer card is assembled
   by code from those judgments - never describe Jev as writing the reply or
   reading WFD files, and the time shown is a size band, not a measurement.
+- **Beach volleyball** in jev-lab is a separate, simpler game from
+  `Vollyball.html` (which is never edited for it). Jev makes one `choice` per
+  touch - set to a teammate, or attack short/mid/deep/lob. Running, ball
+  flight, the net, the rules and the "Rules" playbook are code. Physics runs in
+  1/240 s substeps: at 4x a whole frame let the ball skip past hand height, and
+  the serving side won every point. Check any physics change with rules vs
+  rules at 1x and 4x - touches per point must match - before trusting a score.
 
 ## Colour
 
