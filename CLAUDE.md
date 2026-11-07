@@ -116,3 +116,20 @@ sat on the two categories most often mixed up. Validate before changing:
 node <dataviz-skill>/scripts/validate_palette.js "#3987e5,#d95926,#199e70" \
   --mode dark --surface "#0f1430" --pairs all
 ```
+
+## Vollyball.html (NEAT volleyball)
+
+- Physics is 3D (x towards the net, y height, z across the court). The 2D view
+  is a side-on look at the same court; `vollyball-3d.js` (three.js vendored in
+  `assets/vendor/three`) draws the same simulation in 3D.
+- Every body part is a capsule and both views draw it at exactly its collision
+  radius. Audit any physics change by stepping a `Match` headless and checking
+  that no ball overlaps any capsule after a step, and that the gap at a touch
+  is ~0.25 px.
+- The brain is shared by all players and mirrored (x and z) per team. In 3D,
+  evolution did not discover positioning from scratch, so genomes start with a
+  strong `Job x/z -> Move/Side` weight. Weaker starts or a bigger positioning
+  reward made rallies collapse in tests - check two independent runs (2D view,
+  60 s each) before changing either.
+- Turbo training gets at least ~35% of each frame, however slow the drawing.
+  Software-GL headless Chromium renders 3D at ~6 fps, so test learning in 2D.
