@@ -7,8 +7,8 @@ import * as THREE from './assets/vendor/three/three.module.min.js';
 const U = 100;                      // simulation pixels per 3D unit (≈ 1 m)
 
 export function createView3D(host, api){
-  const {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS, COURT_Z, Z_WALL} = api;
-  const COURT_HALF_Z = COURT_Z / U, WALL_Z = Z_WALL / U;
+  const {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS, COURT_Z, Z_WALL, END_DIST} = api;
+  const COURT_HALF_Z = COURT_Z / U, WALL_Z = Z_WALL / U, END = END_DIST / U;
   const Z = (z)=> z / U;
   const X = (x)=> (x - NET_X) / U;
   const Y = (y)=> (FLOOR_Y - y) / U;
@@ -80,10 +80,14 @@ export function createView3D(host, api){
     g.strokeRect(6, 6, w - 12, h - 12);
     g.beginPath(); g.moveTo(w / 2, 0); g.lineTo(w / 2, h); g.stroke();
     g.lineWidth = 8;
-    const atk = 2.0 / (2 * HALF_L) * w;
+    const atk = 2.0 / (2 * END) * w;
     for(const x of [w / 2 - atk, w / 2 + atk]){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
   });
-  const court = new THREE.Mesh(new THREE.PlaneGeometry(2 * HALF_L, 2 * COURT_HALF_Z), new THREE.MeshStandardMaterial({map: courtTex, roughness: 0.38, metalness: 0.05}));
+  const court = new THREE.Mesh(new THREE.PlaneGeometry(2 * END, 2 * COURT_HALF_Z), new THREE.MeshStandardMaterial({map: courtTex, roughness: 0.38, metalness: 0.05}));
+  // free zone between the lines and the walls
+  const freeZone = new THREE.Mesh(new THREE.PlaneGeometry(2 * HALF_L, 2 * WALL_Z), mat('#2b4fa8', {roughness: 0.5}));
+  freeZone.rotation.x = -Math.PI / 2; freeZone.position.y = -0.001; freeZone.receiveShadow = true;
+  scene.add(freeZone);
   court.rotation.x = -Math.PI / 2; court.receiveShadow = true;
   scene.add(court);
 
@@ -113,6 +117,12 @@ export function createView3D(host, api){
   }
   const tape = new THREE.Mesh(new THREE.BoxGeometry(NET_W / U, 0.07, netSpan), mat('#f5f7ff', {roughness: 0.4}));
   tape.position.set(0, NET_H - 0.035, 0); tape.castShadow = true; scene.add(tape);
+  // antennas: the ball must cross between them (they stand on the side lines)
+  const antTex = canvasTex(8, 64, (g, w, h)=>{ for(let i = 0; i < 8; i++){ g.fillStyle = i % 2 ? '#ffffff' : '#e0263c'; g.fillRect(0, i * h / 8, w, h / 8); } });
+  for(const sz of [-1, 1]){
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 8), new THREE.MeshStandardMaterial({map: antTex, roughness: 0.5}));
+    ant.position.set(0, NET_H + 0.38, sz * COURT_HALF_Z); scene.add(ant);
+  }
   const tape2 = new THREE.Mesh(new THREE.BoxGeometry(NET_W / U, 0.05, netSpan), mat('#e3e8f8'));
   tape2.position.set(0, Y(NET_BOT) + 0.025, 0); scene.add(tape2);
   for(const sz of [-1, 1]){
