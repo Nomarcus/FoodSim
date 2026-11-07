@@ -40,7 +40,14 @@
     .side{flex:0 0 360px; width:360px; display:flex; flex-direction:column; gap:16px}
 
     .playfield-frame{position:relative; padding:10px; border-radius:22px; background:#070c22; border:1px solid var(--line)}
-    canvas#court{display:block; width:100%; height:auto; aspect-ratio:1280/700; border-radius:16px; background:#050a1c}
+    .stage{position:relative; border-radius:16px; overflow:hidden; touch-action:none}
+    canvas#court{position:relative; z-index:1; display:block; width:100%; height:auto; aspect-ratio:1280/700; border-radius:16px; background:#050a1c}
+    .stage.is3d canvas#court{background:transparent; cursor:grab}
+    .stage.is3d canvas#court:active{cursor:grabbing}
+    canvas.court3d{position:absolute; inset:0; width:100%; height:100%; display:none; border-radius:16px}
+    .stage-msg{position:absolute; inset:0; z-index:2; display:flex; align-items:center; justify-content:center; color:var(--ink); font-weight:600; background:rgba(5,10,28,.6)}
+    .cam-select{width:auto; border-radius:999px; padding:7px 12px}
+    .tb-btn.on{background:#1a2452; border-color:rgba(139,156,255,.6)}
     .field-toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 4px 2px}
     .field-toolbar .grow{flex:1}
     .seg{display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden}
@@ -48,6 +55,7 @@
     .seg button.on{background:#1a2452; color:var(--ink)}
     .tb-btn{border:1px solid var(--line); background:#111838; color:var(--ink); border-radius:999px; padding:8px 14px; font:600 13px/1 inherit; cursor:pointer}
     .tb-btn:hover{border-color:rgba(139,156,255,.6)}
+    .tb-btn[aria-pressed=false]{color:var(--muted)}
     .hint{font-size:12px; color:var(--muted)}
 
     .stats-bar{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:14px 18px; border-radius:16px; background:var(--panel); border:1px solid var(--line)}
@@ -116,13 +124,27 @@
     <div class="wrap">
       <div class="field-area">
         <div class="playfield-frame">
-          <canvas id="court" width="1280" height="700" aria-label="Volley simulation field"></canvas>
+          <div class="stage" id="stage">
+            <canvas id="court" width="1280" height="700" aria-label="Volley simulation field"></canvas>
+          </div>
           <div class="field-toolbar">
+            <div class="seg" role="group" aria-label="Dimension">
+              <button id="dim2" class="on" type="button">2D</button>
+              <button id="dim3" type="button" title="Same simulation, drawn in 3D. Drag to orbit, scroll to zoom.">3D</button>
+            </div>
+            <select id="selCamera" class="cam-select" aria-label="3D camera" hidden>
+              <option value="broadcast">Broadcast camera</option>
+              <option value="low">Courtside</option>
+              <option value="end">Behind blue</option>
+              <option value="orbit">Slow orbit</option>
+            </select>
             <div class="seg" role="group" aria-label="View">
               <button id="viewTurbo" class="on" type="button" title="Train many genomes per frame in the background and show the current champion playing in real time">Turbo · show champion</button>
               <button id="viewLive" type="button" title="Watch every genome while it is being evaluated">Live · every genome</button>
             </div>
             <button id="btnPause" class="tb-btn" type="button">⏸ Pause</button>
+            <button id="btnNewest" class="tb-btn" type="button" title="End the current rally and bring in the newest champion">⟳ Newest champion</button>
+            <button id="btnEndless" class="tb-btn on" type="button" aria-pressed="true" title="Let the champion keep playing for as long as the ball stays up, instead of re-serving after 25 seconds. Training is unaffected.">∞ Endless rally</button>
             <span class="grow"></span>
             <span class="hint" id="viewHint">Training runs in the background; the field shows the best brain so far.</span>
           </div>
@@ -288,7 +310,8 @@
           <p>Two teams, <span class="tl">blue</span> and <span class="tr">orange</span>, try to volley the ball over the net. Max three touches per side, like real volleyball.</p>
           <p><strong>The evolved brain decides</strong> five things per player, 60 times a second: move, jump, hit angle, hit power and whether to throw a backflip in the air. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
           <p><strong>Ordinary code</strong> animates the body: spine, head, three-part arms (upper arm, forearm, hand) and three-part legs (thigh, shin, foot) are posed with inverse kinematics so the hands reach for the ball. Hands and forearms strike, shins and feet kick (upside down in a flip that is a bicycle kick), and every other part only deflects the ball. Each part is drawn exactly as wide as its collision shape – tick “Show hitboxes” to see them.</p>
-          <p>Every genome in a generation receives the <em>same</em> set of serves, so their scores are directly comparable.</p>
+          <p>Every genome in a generation receives the <em>same</em> set of serves, so their scores are directly comparable. Training always caps a serve at 25 s; <strong>∞ Endless rally</strong> only lets the champion on show keep going for as long as the ball stays up.</p>
+          <p><strong>3D</strong> draws the very same simulation: the physics is still a flat side-on plane, so every player and the ball sit on the centre line of the court and each limb keeps its exact collision size. Drag to orbit, scroll to zoom.</p>
         </section>
       </aside>
     </div>
@@ -667,7 +690,8 @@
   const MOVE_ACCEL = 2800;
 
   const SERVES_PER_GENOME = 6;
-  const SERVE_TIMEOUT = 25;            // seconds of game time per serve
+  const SERVE_TIMEOUT = 25;            // seconds of game time per serve (training, and showcase unless endless)
+  const STUCK_LIMIT = 15;              // endless rally: re-serve if no one has touched the ball for this long
 
   // Rewards that are not on sliders
   const ARC_HEIGHT = 100;
@@ -691,7 +715,7 @@
     addConnectionRate: 12, addNodeRate: 4,
     armReward: 2, kickReward: 1, headPenalty: 0.5,
     playersPerTeam: 2, ballCount: 1, ballRadius: 20, playerScale: 1, jumpScale: 1,
-    simSpeed: 2, mode: 'cooperation', showSensors: false, showHitboxes: false
+    simSpeed: 2, mode: 'cooperation', showSensors: false, showHitboxes: false, endlessRally: true
   });
   const PRESETS = {
     start: {populationSize: 40, initialHidden: 2, mutationRate: 30, elitism: 0.10, addConnectionRate: 12, addNodeRate: 5,
@@ -1167,7 +1191,11 @@
       });
     }
     startServe(){
-      if(this.pendingBrain){ this.brain = this.pendingBrain; this.pendingBrain = null; }
+      if(this.pendingBrain){
+        this.brain = {left: this.pendingBrain.left, right: this.pendingBrain.right};
+        this.brainGen = this.pendingBrain.gen;
+        this.pendingBrain = null;
+      }
       const spec = this.serves ? this.serves[this.serveIndex] : makeServe(Math.random, this.serveIndex, Math.max(1, Math.round(config.ballCount)));
       for(const t of ['left', 'right']){
         const xs = this.formation(this.teams[t]);
@@ -1177,6 +1205,7 @@
       this.rally = 0;
       this.rallyCrossings = 0;
       this.lastCross = -10;
+      this.lastTouchAt = 0;
     }
     endServe(landedX){
       this.stats.serves++;
@@ -1294,6 +1323,7 @@
       ball.crossed = false;
       ball.touchY = ball.y;
       ball.apexY = ball.y;
+      this.lastTouchAt = this.rally;
       this.stats.touches++;
 
       let r = hit.kind === 'arm' ? config.armReward : hit.kind === 'leg' ? config.kickReward : -config.headPenalty;
@@ -1444,7 +1474,10 @@
       if(this.mode === 'cooperation') this.fitness += R_SURVIVE * dt;
 
       this.rally += dt;
-      if(this.rally >= SERVE_TIMEOUT) this.endServe();
+      // The showcase can run an endless rally; a ball nobody has touched for a while is stuck.
+      if(this.serves === null && config.endlessRally){
+        if(this.rally - this.lastTouchAt > STUCK_LIMIT) this.endServe();
+      } else if(this.rally >= SERVE_TIMEOUT) this.endServe();
     }
 
     // Make sure a ball that stays on screen (fault, landing) is not drawn inside a limb.
@@ -1569,6 +1602,7 @@
     const brain = trainer.champion || trainer.pop.genomes[0];
     const right = config.mode === 'competition' ? (trainer.opponent || brain) : brain;
     trainer.showcase = new Match({left: brain, right, display: true, mode: config.mode});
+    trainer.showcase.brainGen = trainer.champion ? trainer.championGen : 0;
   }
 
   function finishGeneration(){
@@ -1602,7 +1636,7 @@
     // Showcase picks up the new champion at its next serve
     if(trainer.showcase){
       const right = config.mode === 'competition' ? trainer.opponent : trainer.champion;
-      trainer.showcase.pendingBrain = {left: trainer.champion, right};
+      trainer.showcase.pendingBrain = {left: trainer.champion, right, gen: trainer.championGen};
     }
     brainLayoutCache = null;
     drawChart();
@@ -2109,16 +2143,16 @@
   function drawHud(m){
     ctx.textBaseline = 'middle';
     const title = viewMode === 'turbo'
-      ? (trainer.champion ? `Champion · gen ${trainer.championGen}` : 'Untrained brain · gen 1')
+      ? (m.brainGen ? `Champion · gen ${m.brainGen}` : 'Untrained brain · gen 1')
       : `Live · genome ${trainer.index + 1} / ${trainer.pop.genomes.length}`;
     ctx.fillStyle = 'rgba(6,10,28,0.8)';
-    roundRect(40, 44, 240, 58, 10); ctx.fill();
+    roundRect(40, 44, 270, 58, 10); ctx.fill();
     ctx.textAlign = 'left';
     ctx.fillStyle = '#eef2ff'; ctx.font = '700 15px Inter, system-ui, sans-serif';
     ctx.fillText(title, 54, 64);
     ctx.fillStyle = '#9aa6c8'; ctx.font = '500 12px Inter, system-ui, sans-serif';
     const sub = viewMode === 'turbo'
-      ? `Training gen ${trainer.generation} in background`
+      ? (m.pendingBrain ? `Gen ${m.pendingBrain.gen} champion waits for the ball to drop` : `Training gen ${trainer.generation} in background`)
       : `Fitness ${m.fitness.toFixed(1)} · serve ${Math.min(m.serveIndex + 1, SERVES_PER_GENOME)}/${SERVES_PER_GENOME}`;
     ctx.fillText(sub, 54, 86);
     drawScoreboard(m);
@@ -2176,6 +2210,32 @@
     ctx.globalAlpha = 1;
     if(config.showHitboxes) drawHitboxes(m);
     if(config.showSensors) drawSensors(m);
+    drawHud(m);
+  }
+
+  // 3D mode: the WebGL view draws the scene; this canvas becomes a transparent overlay for the
+  // scoreboard, the info card and floating text, projected from the play plane.
+  function renderOverlay(m){
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    if(!m) return;
+    const r = canvas.getBoundingClientRect();
+    const toField = FIELD_W / (r.width || FIELD_W);
+    for(const e of m.fx){
+      const pt = view3d.project(e.x, e.y);
+      if(!pt.visible) continue;
+      const x = pt.x * toField, y = pt.y * toField;
+      ctx.globalAlpha = Math.max(0, e.life / e.max);
+      if(e.kind === 'spark') dot(x, y, 2.4, e.col);
+      else if(e.kind === 'ring'){ ctx.strokeStyle = e.col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 4 + (1 - e.life / e.max) * 16, 0, TAU); ctx.stroke(); }
+      else {
+        ctx.fillStyle = e.col; ctx.font = '800 18px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(e.text, x, y);
+      }
+    }
+    ctx.globalAlpha = 1;
     drawHud(m);
   }
 
@@ -2331,6 +2391,8 @@
   //  Main loop
   // =====================================================================
   let viewMode = 'turbo';
+  let dim = '2d';
+  let view3d = null, view3dLoading = null;
   let paused = false;
   let lastFrame = performance.now();
   let acc = 0;
@@ -2362,7 +2424,13 @@
         }
       }
     }
-    render(viewMode === 'turbo' ? trainer.showcase : trainer.match);
+    const shown = viewMode === 'turbo' ? trainer.showcase : trainer.match;
+    if(dim === '3d' && view3d){
+      view3d.render(shown, now, {hitboxes: config.showHitboxes});
+      renderOverlay(shown);
+    } else {
+      render(shown);
+    }
     if(now - lastBrainAt > 120){ lastBrainAt = now; drawBrain(); }
     updateStats(false);
   }
@@ -2465,10 +2533,49 @@
     Q('viewLive').classList.toggle('on', mode === 'live');
     Q('viewHint').textContent = mode === 'turbo'
       ? 'Training runs in the background; the field shows the best brain so far.'
-      : 'Watching each genome as it is scored. Use “Live view speed” to fast-forward.';
+      : 'Watching each genome as it is scored (25 s per serve, so scores stay comparable).';
     if(trainer.match) trainer.match.display = mode === 'live';
     acc = 0;
   }
+  // ---------- 2D / 3D ----------
+  async function setDim(next){
+    if(next === dim) return;
+    if(next === '3d' && !view3d){
+      const stage = Q('stage');
+      const msg = document.createElement('div');
+      msg.className = 'stage-msg'; msg.textContent = 'Loading 3D…';
+      stage.appendChild(msg);
+      try{
+        view3dLoading = view3dLoading || import('./vollyball-3d.js');
+        const mod = await view3dLoading;
+        view3d = mod.createView3D(stage, {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS, getBallR: ()=> ballR});
+        view3d.setCamera(Q('selCamera').value);
+      } catch(err){
+        console.error(err);
+        alert('3D could not start in this browser (WebGL or module loading failed). Staying in 2D.');
+        msg.remove();
+        return;
+      }
+      msg.remove();
+    }
+    dim = next;
+    Q('dim2').classList.toggle('on', dim === '2d');
+    Q('dim3').classList.toggle('on', dim === '3d');
+    Q('stage').classList.toggle('is3d', dim === '3d');
+    Q('selCamera').hidden = dim !== '3d';
+    if(view3d) view3d.setActive(dim === '3d');
+  }
+  Q('dim2').addEventListener('click', ()=> setDim('2d'));
+  Q('dim3').addEventListener('click', ()=> setDim('3d'));
+  Q('selCamera').addEventListener('change', (e)=>{ if(view3d) view3d.setCamera(e.target.value); });
+  Q('btnNewest').addEventListener('click', ()=>{ resetShowcase(); acc = 0; });
+  Q('btnEndless').addEventListener('click', ()=>{
+    config.endlessRally = !config.endlessRally;
+    const b = Q('btnEndless');
+    b.classList.toggle('on', config.endlessRally);
+    b.setAttribute('aria-pressed', String(config.endlessRally));
+  });
+
   Q('viewTurbo').addEventListener('click', ()=> setView('turbo'));
   Q('viewLive').addEventListener('click', ()=> setView('live'));
   Q('btnPause').addEventListener('click', ()=>{
@@ -2582,7 +2689,7 @@
   requestAnimationFrame(frame);
 
   // Exposed for automated tests only.
-  window.__volley = {trainer, config, trainSteps, Match, makeServe, mulberry32};
+  window.__volley = {trainer, config, trainSteps, Match, makeServe, mulberry32, setDim, get view3d(){ return view3d; }};
   </script>
 </body>
 </html>
