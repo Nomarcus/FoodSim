@@ -131,5 +131,11 @@ node <dataviz-skill>/scripts/validate_palette.js "#3987e5,#d95926,#199e70" \
   strong `Job x/z -> Move/Side` weight. Weaker starts or a bigger positioning
   reward made rallies collapse in tests - check two independent runs (2D view,
   60 s each) before changing either.
+- Volleyball rules are code: serve from behind the end line, max three touches,
+  no double contact, antennas, out on lines/walls/ceiling, rally scoring, sets
+  to 25 by 2, side-out rotation. The brain decides pass-or-attack per touch;
+  the pass trajectory is computed by code - say so when describing it.
+  Players read a new ball flight 0.3 s after each touch (reaction time);
+  without it nobody could ever score in competition mode.
 - Turbo training gets at least ~35% of each frame, however slow the drawing.
   Software-GL headless Chromium renders 3D at ~6 fps, so test learning in 2D.

@@ -308,8 +308,9 @@
 
         <section class="legend">
           <strong>How it works</strong>
-          <p>Two teams, <span class="tl">blue</span> and <span class="tr">orange</span>, try to volley the ball over the net. Max three touches per side, like real volleyball.</p>
-          <p><strong>The evolved brain decides</strong> seven things per player, 60 times a second: move forward/back, move sideways, jump, hit angle, sideways aim, hit power and whether to throw a backflip in the air. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
+          <p>Two teams, <span class="tl">blue</span> and <span class="tr">orange</span>, play by volleyball rules: the server hits from behind the end line, each side gets at most three touches, the same player may not touch twice in a row, the ball must cross between the antennas, and a ball that lands outside the lines or touches a wall or the ceiling is out. Rally scoring, sets to 25 (win by 2); the team that wins a rally serves, and rotates when it wins the serve back.</p>
+          <p>On each touch the brain decides whether to <strong>pass</strong> (code then lobs it to the best-placed teammate: a forearm bump low, a two-hand set high) or to <strong>attack</strong> – a one-arm swing on a high ball, aimed by the brain. Passes that are played on, and balls sent over after two or three touches by different players, earn extra.</p>
+          <p><strong>The evolved brain decides</strong> eight things per player, 60 times a second: move forward/back, move sideways, jump, hit angle, sideways aim, hit power, pass or attack, and whether to throw a backflip in the air. The server's brain also picks the serve's angle, power and direction. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
           <p><strong>Ordinary code</strong> animates the body: spine, head, three-part arms (upper arm, forearm, hand) and three-part legs (thigh, shin, foot) are posed with inverse kinematics so the hands reach for the ball. Hands and forearms strike, shins and feet kick (upside down in a flip that is a bicycle kick), and every other part only deflects the ball. Each part is drawn exactly as wide as its collision shape – tick “Show hitboxes” to see them.</p>
           <p>Every genome in a generation receives the <em>same</em> set of serves, so their scores are directly comparable. Training always caps a serve at 25 s; <strong>∞ Endless rally</strong> only lets the champion on show keep going for as long as the ball stays up.</p>
           <p>The court is <strong>3D</strong>: players move forwards, backwards and sideways, each has a home spot so the team covers the whole half, and a ball landing outside the side lines is out. Every brain starts with one instinct – head for your job: the ball if you are nearest to where it comes down, otherwise your spot – and evolution refines the rest. The 2D view is a side-on look at the same court. Drag the 3D view to orbit, scroll to zoom.</p>
@@ -351,12 +352,12 @@
   // =====================================================================
   const INPUT_LABELS = ['Ball x', 'Ball y', 'Ball z', 'Ball vx', 'Ball vy', 'Ball vz', 'Land x', 'Land z', 'Land time',
     'Lands mine', 'Ball mine', 'Net dist', 'Height', 'Vel y', 'Grounded', 'Mate x', 'Mate z', 'Closest',
-    'Touches', 'Hit last', 'Opp x', 'Opp z', 'Home x', 'Home z', 'Job x', 'Job z'];
-  const OUTPUT_LABELS = ['Move', 'Side', 'Jump', 'Aim', 'Aim side', 'Power', 'Flip'];
+    'Touches', 'Hit last', 'Opp x', 'Opp z', 'Home x', 'Home z', 'Job x', 'Job z', 'Serving'];
+  const OUTPUT_LABELS = ['Move', 'Side', 'Jump', 'Aim', 'Aim side', 'Power', 'Flip', 'Pass'];
   const N_IN = INPUT_LABELS.length;
   const N_OUT = OUTPUT_LABELS.length;
-  const IN_LAND_X = 6, IN_LAND_Z = 7, IN_CLOSEST = 17, IN_HOME_X = 22, IN_HOME_Z = 23, IN_JOB_X = 24, IN_JOB_Z = 25;
-  const OUT_MOVE = 0, OUT_SIDE = 1, OUT_JUMP = 2, OUT_AIM = 3, OUT_AIM_SIDE = 4, OUT_POWER = 5, OUT_FLIP = 6;
+  const IN_LAND_X = 6, IN_LAND_Z = 7, IN_CLOSEST = 17, IN_HOME_X = 22, IN_HOME_Z = 23, IN_JOB_X = 24, IN_JOB_Z = 25, IN_TOUCHES = 18, IN_SERVING = 26;
+  const OUT_MOVE = 0, OUT_SIDE = 1, OUT_JUMP = 2, OUT_AIM = 3, OUT_AIM_SIDE = 4, OUT_POWER = 5, OUT_FLIP = 6, OUT_PASS = 7;
   const WEIGHT_CAP = 8;
 
   // =====================================================================
@@ -579,6 +580,10 @@
         // In 3D evolution could not find this from scratch in tests, so every genome starts with it.
         if(c.from === IN_JOB_X && c.to === this.outStart + OUT_MOVE) c.weight = rand(2.0, 3.0);
         if(c.from === IN_JOB_Z && c.to === this.outStart + OUT_SIDE) c.weight = rand(2.0, 3.0);
+        // A mild starting habit for the three touches: pass on the first two, attack on the third.
+        // Evolution is free to change it.
+        if(c.from === this.biasId && c.to === this.outStart + OUT_PASS) c.weight = rand(0.2, 0.4);
+        if(c.from === IN_TOUCHES && c.to === this.outStart + OUT_PASS) c.weight = rand(-0.9, -0.6);
       }
       return g;
     }
@@ -680,7 +685,8 @@
   const FLOOR_Y = 640;
   const CEILING_Y = 28;
   const WALL_L = 24, WALL_R = FIELD_W - 24;      // end walls (the ball bounces off them)
-  const COURT_Z = 400;                            // side lines: a ball landing beyond |z| = 400 is out
+  const COURT_Z = 400;                            // side lines (and antennas): a ball landing beyond |z| = 400 is out
+  const END_DIST = 520;                           // end lines, measured from the net
   const Z_WALL = 540;                             // arena side walls (glass)
   const PLAYER_Z = COURT_Z + 100;                 // players may chase a little outside the lines
   const NET_X = FIELD_W / 2;
@@ -703,13 +709,18 @@
   const SERVES_PER_GENOME = 6;
   const SERVE_TIMEOUT = 25;            // seconds of game time per serve (training, and showcase unless endless)
   const STUCK_LIMIT = 15;              // endless rally: re-serve if no one has touched the ball for this long
+  const SERVE_DIST = 572;              // the server stands just behind the end line
+  const SERVE_HOLD = 0.4;              // seconds the server holds the ball before the toss
+  const TOSS_VY = 400;
+  const SET_POINTS = 25;
+  const REACTION = 0.3;                // players read a new ball flight this long after a touch
 
   // Rewards that are not on sliders
   const ARC_HEIGHT = 100;
-  const R_FLIP = 0.5, FLIPS_REWARDED = 3;   // style bonus for a landed flip, capped per serve
+  const R_FLIP = 0.25, FLIPS_REWARDED = 2;   // style bonus for a landed flip, capped per serve
   const R_CROSS = 10, R_PASS = 3, R_FAULT = -3, R_SURVIVE = 0.6, R_POSITION = 0.25, R_NET_CLIP = -0.5;
   const R_HOME = 0.06, R_OUT = -3;
-  const C_POINT_WIN = 20, C_POINT_LOSS = -6, C_CROSS = 4;
+  const C_POINT_WIN = 20, C_POINT_LOSS = -6, C_CROSS = 4, C_GAP = 6, C_SPIKE = 4;
 
   // Collision radius of every body part at scale 1. Both views draw each part with
   // exactly this radius, so what you see touching the ball is what touches the ball.
@@ -756,6 +767,7 @@
   const sideOf = (x)=> x < NET_X ? 'left' : 'right';
   const other = (team)=> team === 'left' ? 'right' : 'left';
   const inCourt = (z)=> Math.abs(z) <= COURT_Z;
+  const inCourtXZ = (x, z)=> Math.abs(z) <= COURT_Z && Math.abs(x - NET_X) <= END_DIST;
 
   // Fold a straight-line position back inside two damped walls.
   function fold(v, lo, hi){
@@ -774,8 +786,8 @@
     const disc = ball.vy * ball.vy + 2 * GRAVITY * (yT - ball.y);
     let t = disc > 0 ? (-ball.vy + Math.sqrt(disc)) / GRAVITY : 0;
     if(!(t > 0)) t = 0;
-    out.x = fold(ball.x + ball.vx * t, WALL_L + ballR, WALL_R - ballR);
-    out.z = fold(ball.z + ball.vz * t, -Z_WALL + ballR, Z_WALL - ballR);
+    out.x = clamp(ball.x + ball.vx * t, WALL_L + ballR, WALL_R - ballR);
+    out.z = clamp(ball.z + ball.vz * t, -Z_WALL + ballR, Z_WALL - ballR);
     out.t = t;
     return out;
   }
@@ -801,14 +813,13 @@
     }
     return {x: x0, y: y0, z: z0, vx, vy, vz: (landZ - z0) / t};
   }
+  // A serve: which team serves, where along the end line, and a little toss variation.
+  // Extra balls (ball count > 1) are tossed in from the other side, as before.
   function makeServe(rng, index, ballCount){
-    const first = index % 2 === 0 ? 'left' : 'right';
-    const balls = [];
-    for(let b = 0; b < ballCount; b++){
-      const server = b % 2 === 0 ? first : other(first);
-      balls.push(makeServeBall(rng, server));
-    }
-    return {balls};
+    const team = index % 2 === 0 ? 'left' : 'right';
+    const extras = [];
+    for(let b = 1; b < ballCount; b++) extras.push(makeServeBall(rng, b % 2 ? other(team) : team));
+    return {team, z: (rng() * 2 - 1) * 220, toss: rng(), extras};
   }
 
   // Team formation: a home spot per player, so the team covers the whole half.
@@ -886,6 +897,7 @@
       this.out.fill(0);
       this.focus = null;
       this.wasClosest = false;
+      this.serving = false; this.holdBall = null; this.canPass = false; this.handsOff = false;
       this.pose(0, true);
     }
     minX(){ return this.team === 'left' ? WALL_L + 22 * S : NET_X + NET_W / 2 + 20 * S; }
@@ -895,6 +907,7 @@
       const f = this.facing, o = this.out;
       // Move (towards/away from the net) and Side, both in the player's mirrored frame.
       let tvx = clamp(o[OUT_MOVE], -1, 1) * f * MAX_MOVE, tvz = clamp(o[OUT_SIDE], -1, 1) * f * MAX_MOVE;
+      if(this.serving){ tvx = 0; tvz = 0; }      // the server stays behind the line until the serve is hit
       const tl = Math.hypot(tvx, tvz);
       if(tl > MAX_MOVE){ tvx *= MAX_MOVE / tl; tvz *= MAX_MOVE / tl; }
       let dvx = tvx - this.vx, dvz = tvz - this.vz;
@@ -944,6 +957,7 @@
       const f = this.facing, s = S;
       let ball = this.focus;
       const flipping = this.flip > 0 && this.flipT > 0;
+      if(this.handsOff && !flipping) ball = null;      // do not reach for a ball we may not touch
       let ang = 0, pivX = 0, pivY = 0;
       if(flipping){
         const u = 1 - this.flip / this.flipT;
@@ -972,6 +986,11 @@
 
       // Arms: three parts (upper arm, forearm, hand)
       const shX = this.nx - d2x * 3 * s, shY = this.ny - d2y * 3 * s;
+      // How the arms play this ball: a one-arm swing for serves and attacks on a high ball,
+      // both arms for passes (forearm bump low, two-hand set high).
+      const ballHigh = ball && ball.y < shY + 8 * s;
+      const oneArm = !flipping && ball && (this.serving || (ballHigh && !(this.canPass && this.out[OUT_PASS] > 0)));
+      this.oneArm = oneArm;
       const netEdge = this.team === 'left' ? NET_X - NET_W / 2 - 4 : NET_X + NET_W / 2 + 4;
       const netLimit = this.team === 'left' ? NET_X - NET_W / 2 - 0.5 : NET_X + NET_W / 2 + 0.5;
       for(let i = 0; i < 2; i++){
@@ -982,9 +1001,17 @@
         let tx, ty, tz;
         const bdx = ball ? ball.x - sx : 0, bdy = ball ? ball.y - sy : 0, bdz = ball ? ball.z - sz : 0;
         const bd = Math.sqrt(bdx * bdx + bdy * bdy + bdz * bdz);
-        if(flipping){
+        if(this.holdBall){
+          const hb = this.holdBall;                                                     // holding the ball to serve
+          tx = hb.x - f * 6 * s; ty = hb.y; tz = hb.z + side * (ballR + R.hand * s + 9 * s);
+        } else if(flipping){
           tx = sx + f * 14 * s; ty = sy + 16 * s; tz = sz - side * 3 * s;                 // arms tucked
-        } else if(this.swing > 0){
+        } else if(oneArm && i === 0){
+          tx = sx + f * 22 * s; ty = sy - 12 * s; tz = sz - 4 * s;                        // free arm points ahead
+        } else if(oneArm && i === 1 && this.swing <= 0 && this.hitCd <= 0.05 &&
+                  (bd > ARM_REACH * 1.25 || (this.serving && ball.vy < -90))){
+          tx = sx - f * 16 * s; ty = sy - 42 * s; tz = sz + 2 * s;                        // hitting arm cocked back
+        } else if(this.swing > 0 && (!oneArm || i === 1)){
           tx = sx + this.swingX * ARM_REACH * 1.1; ty = sy + this.swingY * ARM_REACH * 1.1; tz = sz + this.swingZ * ARM_REACH * 1.1;
         } else if(ball && bd < ARM_REACH * 2.4 && this.hitCd <= 0.05){
           const pull = BODY.hand * s * 0.6;
@@ -1176,8 +1203,12 @@
       this.trail = [];
       this.apexY = 0;          // highest point since the last touch (a serve counts as a high ball)
       this.touchY = this.y;
+      this.held = null;        // the server holding it before the toss
+      this.touchedBy = new Set();   // players who touched it in this possession
+      this.outOfPlay = null;   // 'wall' or 'ceiling' – both are out under the rules
     }
     update(dt){
+      if(this.held) return;
       this.vy += GRAVITY * dt;
       const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
       if(sp > MAX_BALL_SPEED){ const k = MAX_BALL_SPEED / sp; this.vx *= k; this.vy *= k; this.vz *= k; }
@@ -1187,11 +1218,12 @@
       this.angle += this.spin * dt;
       if(this.y < this.apexY) this.apexY = this.y;
       this.spin *= 0.995;
-      if(this.y - ballR < CEILING_Y){ this.y = CEILING_Y + ballR; this.vy = Math.abs(this.vy) * CEIL_DAMP; }
-      if(this.x - ballR < WALL_L){ this.x = WALL_L + ballR; this.vx = Math.abs(this.vx) * WALL_DAMP; this.spin *= -0.6; }
-      else if(this.x + ballR > WALL_R){ this.x = WALL_R - ballR; this.vx = -Math.abs(this.vx) * WALL_DAMP; this.spin *= -0.6; }
-      if(this.z - ballR < -Z_WALL){ this.z = -Z_WALL + ballR; this.vz = Math.abs(this.vz) * WALL_DAMP; }
-      else if(this.z + ballR > Z_WALL){ this.z = Z_WALL - ballR; this.vz = -Math.abs(this.vz) * WALL_DAMP; }
+      // Touching the ceiling or a wall is out (the play stops there).
+      if(this.y - ballR < CEILING_Y){ this.y = CEILING_Y + ballR; this.outOfPlay = 'ceiling'; }
+      if(this.x - ballR < WALL_L){ this.x = WALL_L + ballR; this.outOfPlay = 'wall'; }
+      else if(this.x + ballR > WALL_R){ this.x = WALL_R - ballR; this.outOfPlay = 'wall'; }
+      if(this.z - ballR < -Z_WALL){ this.z = -Z_WALL + ballR; this.outOfPlay = 'wall'; }
+      else if(this.z + ballR > Z_WALL){ this.z = Z_WALL - ballR; this.outOfPlay = 'wall'; }
     }
     // The net is a slab across the whole width, from NET_TOP down to the floor.
     collideNet(){
@@ -1248,6 +1280,11 @@
       this.cheer = null;       // side whose fans are celebrating a point
       this.hits = [];          // recent contact points (hitbox overlay)
       this.pendingBrain = null;
+      // match state under the rules: rally scoring, sets to 25 (win by 2), side-out rotation
+      this.score = {left: 0, right: 0};
+      this.sets = {left: 0, right: 0};
+      this.servingTeam = Math.random() < 0.5 ? 'left' : 'right';
+      this.rotation = {left: 0, right: 0};
       this.startServe();
     }
 
@@ -1257,9 +1294,30 @@
         this.brainGen = this.pendingBrain.gen;
         this.pendingBrain = null;
       }
-      const spec = this.serves ? this.serves[this.serveIndex] : makeServe(Math.random, this.serveIndex, Math.max(1, Math.round(config.ballCount)));
+      let spec;
+      if(this.serves){
+        spec = this.serves[this.serveIndex];
+        this.servingTeam = spec.team;
+        this.rotation[spec.team] = Math.floor(this.serveIndex / 2);
+      } else {
+        spec = makeServe(Math.random, 0, Math.max(1, Math.round(config.ballCount)));
+        spec.team = this.servingTeam;
+      }
       for(const p of this.players) p.reset(p.home.x, p.home.z);
-      this.balls = spec.balls.map((b)=> new Ball(b));
+      // The server walks behind the end line and holds the ball.
+      const squad = this.teams[spec.team];
+      const server = squad[this.rotation[spec.team] % squad.length];
+      server.reset(NET_X - server.facing * SERVE_DIST, spec.z);
+      server.serving = true;
+      const ball = new Ball({x: server.x, y: server.cy, z: server.z, vx: 0, vy: 0, vz: 0});
+      ball.held = server;
+      server.holdBall = ball;
+      this.placeHeld(ball);
+      server.pose(0, true);
+      this.server = server;
+      this.toss = spec.toss;
+      this.serveT = 0;
+      this.balls = [ball, ...spec.extras.map((b)=> new Ball(b))];
       this.rally = 0;
       this.rallyCrossings = 0;
       this.lastCross = -10;
@@ -1269,7 +1327,7 @@
       this.stats.serves++;
       if(this.rally > this.stats.longest) this.stats.longest = this.rally;
       if(ball && this.display){
-        this.marks.push({x: ball.x, z: ball.z, life: 1, out: !inCourt(ball.z)});
+        this.marks.push({x: ball.x, z: ball.z, life: 1, out: !inCourtXZ(ball.x, ball.z)});
       }
       this.serveIndex++;
       if(this.serves && this.serveIndex >= this.serves.length){
@@ -1284,8 +1342,30 @@
       // Cooperation: everything counts. Competition: only the learner (left) is scored.
       if(this.mode === 'cooperation' || team === 'left') this.fitness += value;
     }
+    placeHeld(ball){
+      const p = ball.held;
+      ball.x = p.x + p.facing * (ballR + 10 * S);
+      ball.y = p.cy + 4 * S;
+      ball.z = p.z;
+    }
+    // A rule broken: the point goes to the other team, with the reason shown on court.
+    fault(culprit, ball, text){
+      this.stats.faults++;
+      this.reward(culprit, R_FAULT);
+      this.pointTo(other(culprit));
+      if(this.display) this.fx.push({kind: 'text', x: ball.x, y: ball.y - 40, z: ball.z, vy: -30, life: 1.2, max: 1.2, text, col: '#ff9db0'});
+    }
     pointTo(team){
       this.stats.points[team]++;
+      // Rally scoring: the winner serves next; winning the serve back rotates the team.
+      if(team !== this.servingTeam){ this.rotation[team]++; this.servingTeam = team; }
+      this.score[team]++;
+      const o = other(team);
+      if(this.score[team] >= SET_POINTS && this.score[team] - this.score[o] >= 2){
+        this.sets[team]++;
+        if(this.display) this.fx.push({kind: 'text', x: NET_X, y: NET_TOP - 150, z: 0, vy: -10, life: 2.5, max: 2.5, text: `Set to ${team === 'left' ? 'Blue' : 'Orange'}!`, col: team === 'left' ? '#7fb6ff' : '#ffa47a'});
+        this.score.left = 0; this.score.right = 0;
+      }
       this.hype = Math.min(1, this.hype + 0.45);
       this.cheer = {team, life: 2.2};
       if(this.mode === 'competition') this.fitness += team === 'left' ? C_POINT_WIN : C_POINT_LOSS;
@@ -1316,10 +1396,11 @@
       inp[3] = b.vx * f / 600;
       inp[4] = b.vy / 600;
       inp[5] = b.vz * f / 600;
-      inp[6] = clamp((b.pred.x - p.x) * f / 400, -2, 2);
-      inp[7] = clamp((b.pred.z - p.z) * f / 400, -2, 2);
-      inp[8] = clamp(b.pred.t / 2, 0, 1.5);
-      inp[9] = mineX(b.pred.x) ? 1 : -1;
+      const seen = b.seen || b.pred;
+      inp[6] = clamp((seen.x - p.x) * f / 400, -2, 2);
+      inp[7] = clamp((seen.z - p.z) * f / 400, -2, 2);
+      inp[8] = clamp(seen.t / 2, 0, 1.5);
+      inp[9] = mineX(seen.x) ? 1 : -1;
       inp[10] = mineX(b.x) ? 1 : -1;
       inp[11] = Math.abs(NET_X - p.x) / 600;
       inp[12] = (PELVIS_GROUND_Y - p.y) / 150;
@@ -1329,12 +1410,12 @@
       let mate = null, mateD = Infinity, closest = true;
       // Whoever is nearest to where the ball comes down takes it; a small margin keeps
       // the role from flickering between two players at the same distance.
-      const myGap = Math.hypot(p.x - b.pred.x, p.z - b.pred.z) - (p.wasClosest ? 30 : 0);
+      const myGap = Math.hypot(p.x - seen.x, p.z - seen.z) - (p.wasClosest ? 30 : 0);
       for(const q of team){
         if(q === p) continue;
         const d = Math.hypot(q.x - p.x, q.z - p.z);
         if(d < mateD){ mateD = d; mate = q; }
-        if(Math.hypot(q.x - b.pred.x, q.z - b.pred.z) - (q.wasClosest ? 30 : 0) < myGap) closest = false;
+        if(Math.hypot(q.x - seen.x, q.z - seen.z) - (q.wasClosest ? 30 : 0) < myGap) closest = false;
       }
       p.wasClosest = closest;
       inp[15] = mate ? clamp((mate.x - p.x) * f / 400, -2, 2) : 0;
@@ -1350,8 +1431,14 @@
       inp[21] = clamp((oz - p.z) * f / 400, -2, 2);
       inp[22] = clamp((p.home.x - p.x) * f / 400, -2, 2);
       inp[23] = clamp((p.home.z - p.z) * f / 400, -2, 2);
+      inp[IN_SERVING] = p.serving ? 1 : 0;
+      // A pass needs a teammate and must leave room for the attack: only on touches 1 and 2.
+      const touchesSoFar = (b.lastTeam === p.team && !b.crossed) ? b.teamTouches : 0;
+      p.canPass = !p.serving && team.length > 1 && touchesSoFar < 2;
+      // Hands off when the team has no touches left (e.g. a teammate's serve on its way over).
+      p.handsOff = touchesSoFar >= 3 && b.lastPlayer !== p;
       // 'Job': where this player is needed – the ball if it is mine to take, otherwise my spot.
-      const take = closest && mineX(b.pred.x);
+      const take = closest && mineX(seen.x);
       inp[IN_JOB_X] = take ? inp[6] : inp[22];
       inp[IN_JOB_Z] = take ? inp[7] : inp[23];
     }
@@ -1359,7 +1446,46 @@
     onTouch(p, ball, hit){
       const team = p.team;
       const f = p.facing;
-      if(hit.kind === 'body'){
+      // Double contact: the same player may not play the ball twice in a row.
+      if(ball.lastPlayer === p && !ball.crossed){
+        this.fault(team, ball, 'Double hit');
+        return true;
+      }
+      const serve = p.serving;
+      let pass = false, label = null;
+      if(serve){
+        // Serve: a one-arm hit over the net. The brain picks angle, power and side.
+        const aimT = (clamp(p.out[OUT_AIM], -1, 1) + 1) / 2;
+        const theta = (25 + aimT * 35) * DEG;
+        const yaw = clamp(p.out[OUT_AIM_SIDE], -1, 1) * 20 * DEG;
+        const speed = lerp(420, 680, (clamp(p.out[OUT_POWER], -1, 1) + 1) / 2);
+        ball.vx = Math.sin(theta) * Math.cos(yaw) * f * speed;
+        ball.vy = -Math.cos(theta) * speed;
+        ball.vz = Math.sin(theta) * Math.sin(yaw) * f * speed;
+        p.swing = 0.18; p.swingX = f * 0.6; p.swingY = -0.8; p.swingZ = 0;
+        p.serving = false;
+        this.server = null;
+        label = p.grounded ? 'Serve' : 'Jump serve!';
+      } else if(hit.kind !== 'body' && p.canPass && p.out[OUT_PASS] > 0){
+        // Pass: the brain decided to pass; code lobs it to the best-placed teammate.
+        const mates = this.teams[team].filter((q)=> q !== p);
+        const setSpot = {x: NET_X - f * 150, z: 0};
+        const touches = (ball.lastTeam === team && !ball.crossed) ? ball.teamTouches : 0;
+        const goal = touches === 0 ? setSpot : {x: NET_X - f * 160, z: ball.z};
+        let mate = mates[0];
+        for(const q of mates) if(Math.hypot(q.x - goal.x, q.z - goal.z) < Math.hypot(mate.x - goal.x, mate.z - goal.z)) mate = q;
+        const tx = clamp(mate.x + rand(-12, 12), Math.min(NET_X - f * 70, NET_X - f * END_DIST), Math.max(NET_X - f * 70, NET_X - f * END_DIST));
+        const tz = clamp(mate.z + rand(-12, 12), -COURT_Z, COURT_Z);
+        const ty = CONTACT_Y - 10;
+        const apex = Math.min(ball.y, ty) - 150;
+        const vy0 = -Math.sqrt(2 * GRAVITY * Math.max(10, ball.y - apex));
+        const T = -vy0 / GRAVITY + Math.sqrt(2 * Math.max(10, ty - apex) / GRAVITY);
+        ball.vx = (tx - ball.x) / T; ball.vy = vy0; ball.vz = (tz - ball.z) / T;
+        const dl = Math.hypot(ball.vx, ball.vy, ball.vz) || 1;
+        p.swing = 0.14; p.swingX = ball.vx / dl; p.swingY = ball.vy / dl; p.swingZ = ball.vz / dl;
+        pass = true;
+        label = ball.y < p.ny ? 'Set' : 'Bump';
+      } else if(hit.kind === 'body'){
         const dot = ball.vx * hit.nx + ball.vy * hit.ny + ball.vz * hit.nz;
         if(dot < 0){ ball.vx -= 1.6 * dot * hit.nx; ball.vy -= 1.6 * dot * hit.ny; ball.vz -= 1.6 * dot * hit.nz; }
         ball.vx += hit.nx * 120; ball.vy += hit.ny * 120 - 60; ball.vz += hit.nz * 120;
@@ -1383,17 +1509,20 @@
         ball.vz = dz / dl * speed + p.vz * 0.15;
         if(hit.kind === 'leg'){ p.kick = 0.2; p.kickX = dx / dl; p.kickY = dy / dl; p.kickZ = dz / dl; }
         else { p.swing = 0.16; p.swingX = dx / dl; p.swingY = dy / dl; p.swingZ = dz / dl; }
+        if(hit.kind === 'arm' && !p.grounded && dy / dl > 0.1 && p.oneArm) label = 'Spike!';
       }
       ball.spin = clamp(ball.vx * 0.012 + (Math.random() - 0.5) * 4, -14, 14);
       p.hitCd = HIT_COOLDOWN;
 
-      // Touch accounting (three-touch rule)
+      // Touch accounting (three-touch rule). The serve is the serving side's only touch.
       if(ball.lastTeam === team && !ball.crossed) ball.teamTouches++;
-      else ball.teamTouches = 1;
+      else { ball.teamTouches = 1; ball.touchedBy = new Set(); }
+      if(serve) ball.teamTouches = 3;
+      ball.touchedBy.add(p);
       // Touches only pay in full when the ball arrived in a real arc (serves count as arcs).
       const quality = ball.apexY + ballR < NET_TOP - ARC_HEIGHT * 0.5 ? 1 : 0.1;
-      // A pass only counts if the previous touch actually lifted the ball (a set, not a shove).
-      const pass = ball.lastTeam === team && !ball.crossed && ball.lastPlayer && ball.lastPlayer !== p &&
+      // A completed pass: a teammate's previous touch lifted the ball to this player.
+      const completed = ball.lastTeam === team && !ball.crossed && ball.lastPlayer && ball.lastPlayer !== p &&
         ball.apexY < ball.touchY - 60;
       const repeat = ball.lastPlayer === p && !ball.crossed;
       ball.lastTeam = team;
@@ -1408,7 +1537,7 @@
       if(repeat && r > 0) r *= 0.25;
       if(r > 0) r *= quality;
       if(this.mode === 'competition' && r > 0) r *= 0.5;
-      if(pass){ r += R_PASS; this.stats.passes++; }
+      if(completed){ r += R_PASS; this.stats.passes++; }
       this.reward(team, r);
 
       if(this.display){
@@ -1418,18 +1547,18 @@
           this.fx.push({kind: 'spark', x: hit.px, y: hit.py, z: hit.pz, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.45, max: 0.45, col});
         }
         this.fx.push({kind: 'ring', x: hit.px, y: hit.py, z: hit.pz, life: 0.3, max: 0.3, col});
-        if(hit.kind === 'leg') this.fx.push({kind: 'text', x: ball.x, y: ball.y - 30, z: ball.z, vy: -40, life: 0.9, max: 0.9, text: p.flip > 0 ? 'Bicycle kick!' : 'Kick!', col: '#ffd479'});
+        if(hit.kind === 'leg') label = p.flip > 0 ? 'Bicycle kick!' : 'Kick!';
         if(hit.kind === 'leg' && p.flip > 0) this.hype = Math.min(1, this.hype + 0.35);
-        if(pass) this.fx.push({kind: 'text', x: ball.x, y: ball.y - 30, z: ball.z, vy: -40, life: 0.9, max: 0.9, text: 'Pass', col});
+        if(label === 'Spike!') this.hype = Math.min(1, this.hype + 0.2);
+        if(label) this.fx.push({kind: 'text', x: ball.x, y: ball.y - 32, z: ball.z, vy: -40, life: 0.9, max: 0.9, text: label, col: label === 'Spike!' || hit.kind === 'leg' ? '#ffd479' : col});
+        if(!serve) this.fx.push({kind: 'text', x: hit.px, y: hit.py + 26, z: hit.pz, vy: 0, life: 0.7, max: 0.7, text: String(ball.teamTouches), col: '#ffffff', small: true});
       }
 
       if(ball.teamTouches > 3){
-        this.stats.faults++;
-        this.reward(team, R_FAULT);
-        this.pointTo(other(team));
-        if(this.display) this.fx.push({kind: 'text', x: ball.x, y: ball.y - 34, z: ball.z, vy: -30, life: 1.1, max: 1.1, text: '4 touches', col: '#ffd479'});
-        return true;   // serve over
+        this.fault(team, ball, serve ? 'Serve fault' : '4 touches');
+        return true;   // rally over
       }
+      if(pass) ball.passFrom = p;
       return false;
     }
 
@@ -1441,7 +1570,12 @@
         if(this.pause <= 0) this.startServe();
         return;
       }
-      for(const b of this.balls) predict(b, b.pred);
+      for(const b of this.balls){
+        predict(b, b.pred);
+        // Reaction time: players only read a new flight REACTION seconds after a touch.
+        if(!b.seen || this.rally - this.lastTouchAt >= REACTION){ b.seen = b.seen || {}; b.seen.x = b.pred.x; b.seen.z = b.pred.z; b.seen.t = b.pred.t; }
+        else b.seen.t = Math.max(0, b.seen.t - dt);
+      }
 
       // Sense → think → act. Same brain on every player of a team.
       for(let i = 0; i < this.players.length; i++){
@@ -1467,11 +1601,33 @@
       }
       this.separate(this.teams.left);
       this.separate(this.teams.right);
+      // Serve: hold, then toss straight up in front of the hitting arm.
+      if(this.server && this.server.holdBall){
+        const sv = this.server, hb = sv.holdBall;
+        this.serveT += dt;
+        this.placeHeld(hb);
+        if(this.serveT >= SERVE_HOLD){
+          hb.held = null; sv.holdBall = null;
+          hb.vy = -TOSS_VY * (0.95 + 0.1 * this.toss);
+          hb.vx = sv.facing * (2 + 8 * this.toss);
+          hb.vz = 0;
+          this.lastTouchAt = this.rally;
+        }
+      }
       for(const p of this.players) p.pose(dt, false);
 
       for(const ball of this.balls){
+        if(ball.held) continue;
         const prevSide = ball.side;
         ball.update(dt);
+        if(ball.outOfPlay){
+          // Ceiling or wall: out, against the team that touched it last (or the server's side).
+          this.stats.outs++;
+          this.clearBall(ball);
+          this.fault(ball.lastTeam || this.servingTeam, ball, ball.outOfPlay === 'ceiling' ? 'Ceiling – out' : 'Out');
+          this.endServe(ball);
+          return;
+        }
         if(ball.collideNet()) this.reward(ball.lastTeam || sideOf(ball.x), R_NET_CLIP);
 
         // Contacts. One real touch per ball per step; any other overlap (a player still in
@@ -1511,6 +1667,13 @@
         const side = sideOf(ball.x);
         if(side !== prevSide){
           ball.side = side;
+          // The ball must cross between the antennas, i.e. inside the side lines.
+          if(Math.abs(ball.z) > COURT_Z){
+            this.stats.outs++;
+            this.fault(ball.lastTeam || prevSide, ball, 'Outside antenna');
+            this.endServe(ball);
+            return;
+          }
           if(ball.lastTeam === prevSide && !ball.crossed){
             this.stats.crossings++;
             this.rallyCrossings++;
@@ -1523,8 +1686,19 @@
             // ...sent deep into the other half, and heading for the court rather than out.
             const pr = predict(ball, ball.pred);
             const depth = clamp(Math.abs(pr.x - NET_X) / 260, 0.25, 1);
-            const aimIn = inCourt(pr.z) ? 1 : 0.2;
-            this.reward(prevSide, base * arc * depth * aimIn * (0.3 + 0.7 * pace));
+            const aimIn = inCourtXZ(pr.x, pr.z) ? 1 : 0.2;
+            // Teamwork: a ball that went over after two or three touches by different players.
+            const n = ball.touchedBy.size;
+            const team = n >= 3 ? 7 : n >= 2 ? 4 : 0;
+            this.reward(prevSide, (base * depth * (0.3 + 0.7 * pace) + team) * arc * aimIn);
+            if(this.mode === 'competition' && aimIn === 1){
+              // Competition: aim for the gaps – reward balls coming down far from every defender,
+              // and hard attacks travelling downwards.
+              let gap = Infinity;
+              for(const q of this.teams[side]) gap = Math.min(gap, Math.hypot(q.x - pr.x, q.z - pr.z));
+              const hard = ball.vy > 60 && Math.hypot(ball.vx, ball.vy, ball.vz) > 420 ? C_SPIKE : 0;
+              this.reward(prevSide, C_GAP * clamp(gap / 300, 0, 1) + hard);
+            }
             if(this.display) this.fx.push({kind: 'text', x: ball.x, y: ball.y - ballR - 18, z: ball.z, vy: -36, life: 0.9, max: 0.9, text: 'Over!', col: '#9df0c8'});
           }
           ball.crossed = true;
@@ -1534,13 +1708,10 @@
           ball.y = FLOOR_Y - ballR;
           this.clearBall(ball);
           const landed = sideOf(ball.x);
-          if(!inCourt(ball.z)){
+          if(!inCourtXZ(ball.x, ball.z)){
             // Out: the team that touched it last loses the point.
             this.stats.outs++;
-            const culprit = ball.lastTeam || other(landed);
-            this.reward(culprit, R_OUT);
-            this.pointTo(other(culprit));
-            if(this.display) this.fx.push({kind: 'text', x: ball.x, y: ball.y - 40, z: ball.z, vy: -30, life: 1.1, max: 1.1, text: 'Out!', col: '#ff9db0'});
+            this.fault(ball.lastTeam || this.servingTeam, ball, 'Out!');
           } else {
             this.pointTo(other(landed));
           }
@@ -1936,10 +2107,10 @@
       f.fillStyle = pool; f.fillRect(x - 160, FLOOR_Y, 320, FIELD_H - FLOOR_Y);
     });
     f.globalCompositeOperation = 'source-over';
-    f.fillStyle = 'rgba(240,244,255,0.85)'; f.fillRect(WALL_L, FLOOR_Y, WALL_R - WALL_L, 2.5);
+    f.fillStyle = 'rgba(240,244,255,0.85)'; f.fillRect(NET_X - END_DIST, FLOOR_Y, 2 * END_DIST, 2.5);
     f.fillStyle = 'rgba(240,244,255,0.35)';
     for(const x of [NET_X - 200, NET_X + 200]) f.fillRect(x - 1, FLOOR_Y, 2, FIELD_H - FLOOR_Y);
-    for(const x of [WALL_L, WALL_R]) f.fillRect(x - 1.5, FLOOR_Y, 3, FIELD_H - FLOOR_Y);
+    for(const x of [NET_X - END_DIST, NET_X + END_DIST]) f.fillRect(x - 1.5, FLOOR_Y, 3, FIELD_H - FLOOR_Y);   // end lines
     // net shadow on the floor
     f.fillStyle = 'rgba(0,0,0,0.35)'; f.beginPath(); f.ellipse(NET_X, FLOOR_Y + 4, 30, 5, 0, 0, TAU); f.fill();
     // padded post: occupies exactly the physical net column below the mesh
@@ -2222,29 +2393,28 @@
   }
 
   function drawScoreboard(m){
-    const w = 300, h = 62, x = NET_X - w / 2, y = 40;
+    const w = 340, h = 66, x = NET_X - w / 2, y = 38;
     ctx.strokeStyle = 'rgba(160,175,220,0.35)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(x + 40, 30); ctx.lineTo(x + 40, y); ctx.moveTo(x + w - 40, 30); ctx.lineTo(x + w - 40, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 40, 28); ctx.lineTo(x + 40, y); ctx.moveTo(x + w - 40, 28); ctx.lineTo(x + w - 40, y); ctx.stroke();
     ctx.fillStyle = '#05081a'; roundRect(x, y, w, h, 10); ctx.fill();
     ctx.strokeStyle = 'rgba(160,175,220,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = COLORS.left.main; ctx.fillRect(x + 10, y + 8, 6, h - 16);
     ctx.fillStyle = COLORS.right.main; ctx.fillRect(x + w - 16, y + 8, 6, h - 16);
     ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
     ctx.font = '700 10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8f9bc0';
-    if(config.mode === 'competition'){
-      ctx.fillText('BLUE', x + 62, y + 15); ctx.fillText('ORANGE', x + w - 62, y + 15);
-      ctx.font = '800 32px ui-monospace, Menlo, Consolas, monospace';
-      ctx.fillStyle = '#7fb6ff'; ctx.fillText(String(m.stats.points.left).padStart(2, '0'), x + 62, y + 40);
-      ctx.fillStyle = '#ffa47a'; ctx.fillText(String(m.stats.points.right).padStart(2, '0'), x + w - 62, y + 40);
-      ctx.fillStyle = '#ffcf6b'; ctx.font = '800 20px ui-monospace, Menlo, Consolas, monospace';
-      ctx.fillText(m.rally.toFixed(1), NET_X, y + 40);
-      ctx.font = '700 10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8f9bc0'; ctx.fillText('RALLY S', NET_X, y + 15);
-    } else {
-      ctx.fillText('OVER THE NET', x + 85, y + 15); ctx.fillText('RALLY TIME', x + w - 80, y + 15);
-      ctx.font = '800 32px ui-monospace, Menlo, Consolas, monospace';
-      ctx.fillStyle = '#9df0c8'; ctx.fillText(String(m.rallyCrossings).padStart(2, '0'), x + 85, y + 40);
-      ctx.fillStyle = '#ffcf6b'; ctx.fillText(m.rally.toFixed(1), x + w - 80, y + 40);
-    }
+    ctx.fillText('BLUE', x + 64, y + 14); ctx.fillText('ORANGE', x + w - 64, y + 14);
+    // serve indicator
+    const srvX = m.servingTeam === 'left' ? x + 30 : x + w - 30;
+    ctx.fillStyle = '#ffcf6b'; ctx.beginPath(); ctx.arc(srvX, y + 14, 3.5, 0, TAU); ctx.fill();
+    ctx.font = '800 30px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillStyle = '#7fb6ff'; ctx.fillText(String(m.score.left).padStart(2, '0'), x + 64, y + 40);
+    ctx.fillStyle = '#ffa47a'; ctx.fillText(String(m.score.right).padStart(2, '0'), x + w - 64, y + 40);
+    ctx.font = '700 10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8f9bc0';
+    ctx.fillText(`SETS ${m.sets.left} – ${m.sets.right}`, NET_X, y + 14);
+    ctx.font = '800 15px ui-monospace, Menlo, Consolas, monospace'; ctx.fillStyle = '#9df0c8';
+    ctx.fillText(`${m.rallyCrossings} over`, NET_X, y + 34);
+    ctx.fillStyle = '#ffcf6b';
+    ctx.fillText(`${m.rally.toFixed(1)} s`, NET_X, y + 52);
   }
 
   function drawHud(m){
@@ -2314,7 +2484,7 @@
         ctx.strokeStyle = e.col; ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.arc(e.x, e.y, 4 + (1 - a) * 16, 0, TAU); ctx.stroke();
       } else {
-        ctx.fillStyle = e.col; ctx.font = '800 18px Inter, system-ui, sans-serif';
+        ctx.fillStyle = e.col; ctx.font = e.small ? '800 13px Inter, system-ui, sans-serif' : '800 18px Inter, system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(e.text, e.x, e.y);
       }
@@ -2347,7 +2517,7 @@
       if(e.kind === 'spark') dot(x, y, 2.4, e.col);
       else if(e.kind === 'ring'){ ctx.strokeStyle = e.col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 4 + (1 - e.life / e.max) * 16, 0, TAU); ctx.stroke(); }
       else {
-        ctx.fillStyle = e.col; ctx.font = '800 18px Inter, system-ui, sans-serif';
+        ctx.fillStyle = e.col; ctx.font = e.small ? '800 13px Inter, system-ui, sans-serif' : '800 18px Inter, system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(e.text, x, y);
       }
@@ -2667,7 +2837,7 @@
       try{
         view3dLoading = view3dLoading || import('./vollyball-3d.js');
         const mod = await view3dLoading;
-        view3d = mod.createView3D(stage, {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS, COURT_Z, Z_WALL, getBallR: ()=> ballR});
+        view3d = mod.createView3D(stage, {FLOOR_Y, NET_X, NET_W, NET_TOP, NET_BOT, WALL_L, WALL_R, CEILING_Y, COLORS, COURT_Z, Z_WALL, END_DIST, getBallR: ()=> ballR});
         view3d.setCamera(Q('selCamera').value);
       } catch(err){
         console.error(err);
@@ -2703,7 +2873,7 @@
   });
 
   // ---------- Save / load ----------
-  const SAVE_VERSION = 5;
+  const SAVE_VERSION = 6;
   function serializeGenome(g){
     return {
       nodes: Array.from(g.nodes.values()).map((n)=> [n.id, n.type, n.layer]),
