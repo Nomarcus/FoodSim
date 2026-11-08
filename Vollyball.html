@@ -141,7 +141,7 @@
             </select>
             <div class="seg" role="group" aria-label="View">
               <button id="viewTurbo" class="on" type="button" title="Train many genomes per frame in the background and show the current champion playing in real time">Turbo · show champion</button>
-              <button id="viewLive" type="button" title="Watch every genome while it is being evaluated">Live · every genome</button>
+              <button id="viewLive" type="button" title="Watch every generation's match while it is played">Live · every generation</button>
             </div>
             <button id="btnPause" class="tb-btn" type="button">⏸ Pause</button>
             <select id="selMatch" class="cam-select" aria-label="Match length" title="Length of the match on show">
@@ -151,17 +151,17 @@
             </select>
             <button id="btnNewest" class="tb-btn" type="button" title="Stop this match and start a new one with the newest champion">⟳ New match</button>
             <span class="grow"></span>
-            <span class="hint" id="viewHint">Training runs in the background; the field shows a full match: champion (blue) vs coach (orange).</span>
+            <span class="hint" id="viewHint">Training runs in the background; the field shows a full match of the champion against itself.</span>
           </div>
         </div>
 
         <section class="stats-bar" aria-live="off" aria-label="Simulation statistics">
           <div class="stat-card"><span class="stat-label">Generation</span><span class="stat-value" id="stat-generation">1</span></div>
-          <div class="stat-card"><span class="stat-label">Evaluating</span><span class="stat-value" id="stat-genome">1 / 1</span></div>
-          <div class="stat-card"><span class="stat-label">Best fitness</span><span class="stat-value" id="stat-best">–</span></div>
-          <div class="stat-card"><span class="stat-label">Coach level</span><span class="stat-value" id="stat-level">1 / 8</span></div>
-          <div class="stat-card"><span class="stat-label">Champion: rallies won</span><span class="stat-value" id="stat-champ">–</span></div>
-          <div class="stat-card"><span class="stat-label">Species</span><span class="stat-value" id="stat-species">1</span></div>
+          <div class="stat-card"><span class="stat-label">This match (new vs champ)</span><span class="stat-value" id="stat-match">0 – 0</span></div>
+          <div class="stat-card"><span class="stat-label">Champion since gen</span><span class="stat-value" id="stat-champgen">1</span></div>
+          <div class="stat-card"><span class="stat-label">Challengers that won</span><span class="stat-value" id="stat-accepted">0</span></div>
+          <div class="stat-card"><span class="stat-label">Vs the first brain</span><span class="stat-value" id="stat-first">50%</span></div>
+          <div class="stat-card"><span class="stat-label">Rallies per generation</span><span class="stat-value" id="stat-rallies">16</span></div>
           <div class="stat-card"><span class="stat-label">Mutation (active)</span><span class="stat-value" id="stat-mutation">0%</span></div>
           <div class="stat-card"><span class="stat-label">Generations / min</span><span class="stat-value" id="stat-rate">–</span></div>
         </section>
@@ -169,14 +169,14 @@
         <div class="insight-row">
           <section class="card" aria-labelledby="fitness-heading">
             <div class="card-head">
-              <h2 id="fitness-heading">Rallies won against the coach</h2>
+              <h2 id="fitness-heading">Champion against the very first brain</h2>
               <span class="card-note" id="fitnessChartNote">Awaiting first generation</span>
             </div>
-            <canvas id="fitnessChart" class="mini" aria-label="Share of rallies won against the coach per generation"></canvas>
+            <canvas id="fitnessChart" class="mini" aria-label="Share of rallies the champion wins against the first brain, by generation"></canvas>
             <div class="legend-inline">
-              <span><span class="sw" style="background:#3987e5"></span>Champion</span>
-              <span><span class="sw" style="background:#199e70"></span>Population average</span>
-              <span><span class="sw" style="background:#ffcf6b"></span>Coach levels up</span>
+              <span><span class="sw" style="background:#3987e5"></span>Rallies won vs the first brain</span>
+              <span><span class="sw" style="background:#199e70"></span>Challengers that won (last 20)</span>
+              <span><span class="sw" style="background:#ffcf6b"></span>50% = no better than the start</span>
             </div>
           </section>
           <section class="card" aria-labelledby="brain-heading">
@@ -197,13 +197,13 @@
       <aside class="side">
         <section class="panel" aria-labelledby="controls-heading">
           <h2 id="controls-heading">Training controls</h2>
-          <p>Every blue player runs a copy of the same evolving brain and trains against a coded coach. Population size applies from the next generation; hidden neurons on restart.</p>
+          <p>Every player on both teams is the same agent. Each generation it plays one match against a mutated copy of itself; the copy takes over if it wins. Hidden neurons apply on restart.</p>
 
           <div class="group-title">Evolution</div>
           <div class="control-grid">
             <div class="control">
-              <div class="control-header"><label class="label" for="slPopulation">Population size</label><span class="val" id="lbPopulation"></span></div>
-              <input id="slPopulation" type="range" min="8" max="120" step="1" value="48">
+              <div class="control-header"><label class="label" for="slRallies">Rallies per generation</label><span class="val" id="lbRallies"></span></div>
+              <input id="slRallies" type="range" min="6" max="30" step="2" value="16">
             </div>
             <div class="control">
               <div class="control-header"><label class="label" for="slHidden">Initial hidden neurons</label><span class="val" id="lbHidden"></span></div>
@@ -211,15 +211,11 @@
             </div>
             <div class="control">
               <div class="control-header"><label class="label" for="slMutRate">Weight mutation % (base)</label><span class="val" id="lbMutRate"></span></div>
-              <input id="slMutRate" type="range" min="5" max="80" step="1" value="28">
-            </div>
-            <div class="control">
-              <div class="control-header"><label class="label" for="slElite">Elite keep %</label><span class="val" id="lbElite"></span></div>
-              <input id="slElite" type="range" min="0" max="40" step="1" value="10">
+              <input id="slMutRate" type="range" min="3" max="80" step="1" value="20">
             </div>
             <div class="control">
               <div class="control-header"><label class="label" for="slAddConn">Add-connection %</label><span class="val" id="lbAddConn"></span></div>
-              <input id="slAddConn" type="range" min="0" max="40" step="1" value="12">
+              <input id="slAddConn" type="range" min="0" max="40" step="1" value="10">
             </div>
             <div class="control">
               <div class="control-header"><label class="label" for="slAddNode">Add-node %</label><span class="val" id="lbAddNode"></span></div>
@@ -277,11 +273,12 @@
         <section class="legend">
           <strong>How it works</strong>
           <p>Two teams, <span class="tl">blue</span> and <span class="tr">orange</span>, play by volleyball rules: the server hits from behind the end line, each side gets at most three touches, the same player may not touch twice in a row, the ball must cross between the antennas, and a ball that lands outside the lines or touches a wall or the ceiling is out. Rally scoring, sets to 25 (win by 2); the team that wins a rally serves, and rotates when it wins the serve back.</p>
-          <p><strong>How it learns:</strong> each brain plays 12 rallies against the <strong>coach</strong>, a coded orange team with a skill level from 1 to 8. Fitness is mostly points won. The generation's best brain is then checked on 24 fresh rallies; when it wins 70% of them, the coach moves up a level. The chart shows that check and every level-up.</p>
+          <p><strong>How it learns:</strong> there is one agent, and every player on both teams is that agent. Each generation, a slightly mutated copy (blue) plays one match against the champion (orange). If the copy wins clearly – by a margin that grows with the number of decided rallies, so luck rarely decides – and also holds its own against the first brain and the last few champions, it becomes the new champion; otherwise it is thrown away. Mutation steps shrink while copies keep winning and grow when none has won for a while. Every 10 generations the champion also plays the very first brain – the chart shows that share, where 50% means no better than the start.</p>
+          <p>A hard ball is hard to control: the faster it arrives, the less exact the next pass or hit – which is what makes hard serves and spikes win points.</p>
           <p>On each touch the brain decides whether to <strong>pass</strong> (code then lobs it to the best-placed teammate: a forearm bump low, a two-hand set high) or to <strong>attack</strong> – a one-arm swing on a high ball, aimed by the brain. Passes that are played on, and balls sent over after two or three touches by different players, earn extra.</p>
           <p><strong>The evolved brain decides</strong> six things per player, 60 times a second: whether to spike (code then times the jump), the hit angle, the sideways aim, the power, pass or attack, and whether to throw a backflip in the air. The server's brain also picks the serve's angle, power and direction. <strong>Ordinary code</strong> runs each player to the ball (if it is theirs to take) or back to their spot. It sees the ball, where the ball will come down, its teammate and the net, all mirrored so every player thinks it plays from the left.</p>
           <p><strong>Ordinary code</strong> animates the body: spine, head, three-part arms (upper arm, forearm, hand) and three-part legs (thigh, shin, foot) are posed with inverse kinematics so the hands reach for the ball. Hands and forearms strike, shins and feet kick (upside down in a flip that is a bicycle kick), and every other part only deflects the ball. Each part is drawn exactly as wide as its collision shape – tick “Show hitboxes” to see them.</p>
-          <p>Every genome in a generation receives the <em>same</em> serves, so their scores are directly comparable. Training rallies stop after 30 s and then count for neither side; the match on show has no time limit and is played to the end.</p>
+          <p>Training rallies stop after 30 s and then count for neither side; the match on show has no time limit and is played to the end.</p>
           <p>The court is <strong>3D</strong>: players move forwards, backwards and sideways, each has a home spot so the team covers the whole half, and a ball landing outside the lines is out. The 2D view is a side-on look at the same court. Drag the 3D view to orbit, scroll to zoom.</p>
         </section>
       </aside>
@@ -553,91 +550,6 @@
       return g;
     }
 
-    speciate(){
-      for(const s of this.species) s.members = [];
-      for(const g of this.genomes){
-        let home = null;
-        for(const s of this.species){
-          if(g.distance(s.rep) < this.threshold){ home = s; break; }
-        }
-        if(!home){
-          home = {id: this.nextSpeciesId++, rep: g, members: [], best: -Infinity, stale: 0, score: 0};
-          this.species.push(home);
-        }
-        home.members.push(g);
-      }
-      this.species = this.species.filter((s)=> s.members.length > 0);
-    }
-
-    evolve(cfg){
-      const size = Math.max(4, Math.round(cfg.populationSize));
-      this.speciate();
-      const target = clamp(Math.round(size / 8), 3, 8);
-      if(this.species.length < target) this.threshold = Math.max(0.25, this.threshold - 0.08);
-      else if(this.species.length > target) this.threshold += 0.08;
-
-      const all = this.genomes.slice().sort((a, b)=> b.fitness - a.fitness);
-      const minF = all.length ? all[all.length - 1].fitness : 0;
-      for(const s of this.species){
-        s.members.sort((a, b)=> b.fitness - a.fitness);
-        const top = s.members[0].fitness;
-        if(top > s.best + 1e-6){ s.best = top; s.stale = 0; } else { s.stale++; }
-        let sum = 0;
-        for(const g of s.members) sum += g.fitness - minF;
-        s.score = sum / s.members.length + 1e-6;   // explicit fitness sharing
-      }
-      const ranked = this.species.slice().sort((a, b)=> b.members[0].fitness - a.members[0].fitness);
-      const alive = this.species.filter((s)=> s.stale < 15 || ranked.indexOf(s) < 2);
-
-      const next = [];
-      const eliteCount = clamp(Math.round(size * cfg.elitism), 1, size - 1);
-      for(let i = 0; i < eliteCount && i < all.length; i++) next.push(all[i].clone());
-
-      const remaining = size - next.length;
-      const total = alive.reduce((acc, s)=> acc + s.score, 0) || 1;
-      const quotas = alive.map((s)=> s.score / total * remaining);
-      const counts = quotas.map(Math.floor);
-      let left = remaining - counts.reduce((a, b)=> a + b, 0);
-      quotas.map((q, i)=> [q - Math.floor(q), i]).sort((a, b)=> b[0] - a[0]).forEach(([, i])=>{
-        if(left > 0){ counts[i]++; left--; }
-      });
-
-      const tournament = (pool)=>{
-        let best = null;
-        for(let k = 0; k < 3; k++){
-          const g = pool[Math.floor(Math.random() * pool.length)];
-          if(!best || g.fitness > best.fitness) best = g;
-        }
-        return best;
-      };
-      const rate = cfg.mutationRate / 100, addC = cfg.addConnectionRate / 100, addN = cfg.addNodeRate / 100;
-      alive.forEach((s, si)=>{
-        const pool = s.members.slice(0, Math.max(1, Math.ceil(s.members.length * 0.5)));
-        for(let q = 0; q < counts[si]; q++){
-          let child;
-          if(Math.random() < 0.75){
-            const a = tournament(pool);
-            const b = Math.random() < 0.03 ? all[Math.floor(Math.random() * Math.min(all.length, 10))] : tournament(pool);
-            child = a === b ? a.clone() : (a.fitness >= b.fitness ? a.crossover(b) : b.crossover(a));
-          } else {
-            child = tournament(pool).clone();
-          }
-          child.mutate(rate, addC, addN);
-          next.push(child);
-        }
-      });
-      while(next.length < size){
-        const child = all[Math.floor(Math.random() * Math.max(1, Math.ceil(all.length * 0.2)))].clone();
-        child.mutate(rate, addC, addN);
-        next.push(child);
-      }
-      this.genomes = next.slice(0, size);
-      for(const s of alive){
-        s.rep = s.members[Math.floor(Math.random() * s.members.length)];
-        s.members = [];
-      }
-      this.species = alive;
-    }
   }
 
   // =====================================================================
@@ -671,7 +583,6 @@
   const MAX_MOVE = 330;
   const MOVE_ACCEL = 2800;
 
-  const SERVES_PER_GENOME = 12;
   const SERVE_TIMEOUT = 30;            // training rallies stop here and count for neither side
   const STUCK_LIMIT = 15;              // full match: re-serve a ball nobody has touched for this long
   const SERVE_DIST = 572;              // the server stands just behind the end line
@@ -698,8 +609,8 @@
     upper: 30, fore: 28, hand: 11, shoulder: 9, hip: 6};
 
   const DEFAULT_CONFIG = Object.freeze({
-    populationSize: 48, initialHidden: 2, mutationRate: 28, elitism: 0.10,
-    addConnectionRate: 12, addNodeRate: 4,
+    initialHidden: 2, mutationRate: 20, ralliesPerGen: 16,
+    addConnectionRate: 10, addNodeRate: 4,
     playersPerTeam: 2, ballRadius: 20, playerScale: 1, jumpScale: 1,
     simSpeed: 2, showSensors: false, showHitboxes: false, matchSets: 3
   });
@@ -1208,33 +1119,6 @@
   }
 
   // =====================================================================
-  //  Coach: the orange team in training. Plain rules, no learning, with a skill level 1–8:
-  //  higher levels aim more precisely, look for gaps (from level 2) and spike (from level 3).
-  // =====================================================================
-  class Coach {
-    constructor(level){ this.level = level; }
-    activate(inp, out){
-      const L = this.level, sd = [0, 0.4, 0.3, 0.22, 0.16, 0.11, 0.07, 0.04, 0.02][L] || 0.02;
-      const n = ()=> gauss() * sd;
-      const touches = Math.round(inp[IN_TOUCHES] * 3);
-      const open = clamp(inp[IN_OPEN_Z], -1, 1);
-      out[OUT_PASS] = touches < 2 ? 1 : -1;
-      out[OUT_FLIP] = -1;
-      out[OUT_JUMP] = (L >= 3 && touches >= 2 && inp[IN_NETDIST] < 0.42) ? 1 : -1;      // spike from the front
-      if(inp[IN_SERVING] > 0){
-        out[OUT_AIM] = n() * 0.6; out[OUT_POWER] = n() * 0.6;
-        out[OUT_AIM_SIDE] = (L >= 2 ? open * 1.2 : 0) + n();
-      } else if(inp[IN_GROUNDED] < 0 && L >= 3 && inp[IN_BALL_H] > 0.1 && inp[IN_NETDIST] < 0.42){
-        out[OUT_AIM] = 0.8 + n(); out[OUT_POWER] = 0.85; out[OUT_AIM_SIDE] = open + n();   // spike
-      } else {
-        out[OUT_AIM] = 0.2 + n(); out[OUT_POWER] = 0.25 + n() * 0.5;
-        out[OUT_AIM_SIDE] = (L >= 2 ? open * 0.8 : 0) + n();
-      }
-      return out;
-    }
-  }
-
-  // =====================================================================
   //  Match: plays a list of serves with given brains
   // =====================================================================
   class Match {
@@ -1463,6 +1347,9 @@
       }
       const serve = p.serving;
       let pass = false, label = null;
+      // A hard ball is hard to control: the faster it arrives, the less exact the next touch.
+      const vIn = Math.hypot(ball.vx, ball.vy, ball.vz);
+      const shaky = serve ? 0 : clamp((vIn - 380) / 300, 0, 1.3);
       if(serve){
         // Serve: a one-arm hit over the net. The brain picks angle, power and side.
         const aimT = (clamp(p.out[OUT_AIM], -1, 1) + 1) / 2;
@@ -1484,8 +1371,9 @@
         const goal = touches === 0 ? setSpot : {x: NET_X - f * 160, z: ball.z};
         let mate = mates[0];
         for(const q of mates) if(Math.hypot(q.x - goal.x, q.z - goal.z) < Math.hypot(mate.x - goal.x, mate.z - goal.z)) mate = q;
-        const tx = clamp(mate.x + rand(-12, 12), Math.min(NET_X - f * 70, NET_X - f * END_DIST), Math.max(NET_X - f * 70, NET_X - f * END_DIST));
-        const tz = clamp(mate.z + rand(-12, 12), -COURT_Z, COURT_Z);
+        const miss = 12 + shaky * 150;
+        const tx = mate.x + gauss() * miss;
+        const tz = mate.z + gauss() * miss;
         const ty = CONTACT_Y - 10;
         const apex = Math.min(ball.y, ty) - 150;
         const vy0 = -Math.sqrt(2 * GRAVITY * Math.max(10, ball.y - apex));
@@ -1504,8 +1392,8 @@
         // contact geometry adds a little realism.
         const aimT = (clamp(p.out[OUT_AIM], -1, 1) + 1) / 2;
         const theta = (-55 + aimT * 165) * DEG;        // 0 = straight up, + = toward the net
-        const yaw = clamp(p.out[OUT_AIM_SIDE], -1, 1) * AIM_SIDE_MAX;
-        const fwd = Math.sin(theta);
+        const yaw = clamp(p.out[OUT_AIM_SIDE], -1, 1) * AIM_SIDE_MAX + gauss() * shaky * 14 * DEG;
+        const fwd = Math.sin(theta + gauss() * shaky * 12 * DEG);
         let dx = fwd * Math.cos(yaw) * f, dy = -Math.cos(theta), dz = Math.abs(fwd) * Math.sin(yaw) * f;
         const blend = hit.kind === 'arm' ? 0.15 : 0.4;
         dx = dx * (1 - blend) + hit.nx * blend;
@@ -1790,50 +1678,48 @@
   }
 
   // =====================================================================
-  //  Trainer: every genome plays the same serves against the coach. When the champion wins
-  //  most of its rallies two generations running, the coach moves up a level (1–5).
+  //  Trainer: one agent, learning by self-play, one match per generation.
+  //  Each generation a slightly mutated copy of the champion (blue) plays one match against
+  //  the champion (orange). If the copy wins clearly, it becomes the champion. Every few
+  //  generations the champion also plays the very first brain, to show real progress.
   // =====================================================================
-  const COACH_MAX = 8, LEVEL_UP_WIN = 0.7, CHECK_RALLIES = 24;
+  const ACCEPT_MARGIN = 3, CHECK_EVERY = 10, CHECK_RALLIES = 24;
   const trainer = {
-    pop: null, generation: 1, index: 0, serves: [], match: null,
-    champion: null, championGen: 0, coachLevel: 1, levelStreak: 0,
-    bestEver: -Infinity, history: [], genTimes: [],
-    activeMutation: config.mutationRate, stagnant: 0,
-    showcase: null
+    pop: null, generation: 1, serves: [], match: null,
+    champion: null, challenger: null, first: null, championGen: 1,
+    accepted: 0, recent: [], history: [], checks: [], genTimes: [], archive: [],
+    activeMutation: config.mutationRate, showcase: null
   };
 
   function newServeSet(){
     const seed = (Date.now() ^ (trainer.generation * 2654435761)) >>> 0;
     const rng = mulberry32(seed);
     const list = [];
-    for(let i = 0; i < SERVES_PER_GENOME; i++) list.push(makeServe(rng, i, 1));
+    for(let i = 0; i < Math.round(config.ralliesPerGen); i++) list.push(makeServe(rng, i, 1));
     return list;
-  }
-
-  function startGenome(){
-    const g = trainer.pop.genomes[trainer.index];
-    trainer.match = new Match({left: g, right: new Coach(trainer.coachLevel), serves: trainer.serves, display: viewMode === 'live'});
   }
 
   function startGeneration(){
     trainer.serves = newServeSet();
-    trainer.index = 0;
-    startGenome();
+    trainer.challenger = trainer.champion.clone();
+    trainer.challenger.mutate(trainer.activeMutation / 100, config.addConnectionRate / 100, config.addNodeRate / 100);
+    trainer.match = new Match({left: trainer.challenger, right: trainer.champion, serves: trainer.serves, display: viewMode === 'live'});
   }
 
   function restartTraining(){
     updateDerived();
-    trainer.pop = new Population(Math.round(config.populationSize), Math.round(config.initialHidden));
+    trainer.pop = new Population(1, Math.round(config.initialHidden));
+    trainer.champion = trainer.pop.genomes[0];
+    trainer.first = trainer.champion.clone();
     trainer.generation = 1;
-    trainer.champion = null;
-    trainer.championGen = 0;
-    trainer.coachLevel = 1;
-    trainer.levelStreak = 0;
-    trainer.bestEver = -Infinity;
+    trainer.championGen = 1;
+    trainer.accepted = 0;
+    trainer.archive = [];
+    trainer.recent = [];
     trainer.history = [];
+    trainer.checks = [{gen: 0, win: 0.5, rate: 0}];     // the first brain against itself
     trainer.genTimes = [performance.now()];
     trainer.activeMutation = config.mutationRate;
-    trainer.stagnant = 0;
     startGeneration();
     resetShowcase();
     drawChart();
@@ -1841,69 +1727,79 @@
     updateStats(true);
   }
 
-  // A full match: the champion (blue) against the coach at its current level (orange).
-  // The players never change mid-match; the next match brings in the newest champion.
+  // The match on show: the champion against itself – every player is the same agent.
+  // Players never change mid-match; the next match brings in the newest champion.
   function resetShowcase(){
-    const brain = trainer.champion || trainer.pop.genomes[0];
-    trainer.showcase = new Match({left: brain, right: new Coach(trainer.coachLevel), display: true, sets: config.matchSets});
-    trainer.showcase.brainGen = trainer.champion ? trainer.championGen : 0;
-    trainer.showcase.coachLevel = trainer.coachLevel;
+    const b = trainer.champion;
+    trainer.showcase = new Match({left: b, right: b, display: true, sets: config.matchSets});
+    trainer.showcase.brainGen = trainer.championGen;
   }
 
-  // Share of the decided rallies that blue won (rallies cut off by the time limit do not count).
-  const winRate = (g)=> g.stats ? g.stats.won / Math.max(1, g.stats.won + g.stats.lost) : 0;
+  function duel(a, b, n, seed){
+    const rng = mulberry32(seed >>> 0);
+    const serves = [];
+    for(let i = 0; i < n; i++) serves.push(makeServe(rng, i, 1));
+    const m = new Match({left: a, right: b, serves, display: false});
+    while(!m.done) m.step(SIM_DT);
+    return [m.stats.points.left, m.stats.points.right];
+  }
+  function holdsUp(g){
+    const rivals = [trainer.first, ...trainer.archive.slice(-4).map((a)=> a.g).filter((x)=> x !== trainer.champion)];
+    for(let i = 0; i < rivals.length; i++){
+      const [w, l] = duel(g, rivals[i], 16, trainer.generation * 31 + i);
+      if(w < l) return false;
+    }
+    return true;
+  }
 
-  // The best of 48 genomes on 12 rallies always looks lucky, so the champion is checked
-  // on 24 fresh rallies against the coach. That number drives the chart and the level-ups.
-  function checkChampion(g){
+  // Champion (blue) against the very first brain (orange) on fresh serves: share of decided rallies won.
+  function checkVsFirst(){
     const rng = mulberry32((trainer.generation * 7919 + 13) >>> 0);
     const serves = [];
     for(let i = 0; i < CHECK_RALLIES; i++) serves.push(makeServe(rng, i, 1));
-    const m = new Match({left: g, right: new Coach(trainer.coachLevel), serves, display: false});
+    const m = new Match({left: trainer.champion, right: trainer.first, serves, display: false});
     while(!m.done) m.step(SIM_DT);
     const decided = m.stats.points.left + m.stats.points.right;
-    return {win: m.stats.points.left / Math.max(1, decided), decided};
+    return decided ? m.stats.points.left / decided : 0.5;
   }
 
-  function finishGeneration(){
-    const genomes = trainer.pop.genomes;
-    let best = genomes[0], sum = 0, winSum = 0;
-    for(const g of genomes){ sum += g.fitness; winSum += winRate(g); if(g.fitness > best.fitness) best = g; }
-    const check = checkChampion(best);
-    const entry = {best: best.fitness, avg: sum / genomes.length, win: check.win, decided: check.decided, avgWin: winSum / genomes.length, level: trainer.coachLevel};
-    trainer.history.push(entry);
-
-    // adaptive mutation: bump on stagnation, relax toward the slider value on progress
-    if(best.fitness > trainer.bestEver * 1.02 + 0.5){
-      trainer.stagnant = 0;
-      trainer.activeMutation = lerp(trainer.activeMutation, config.mutationRate, 0.4);
-    } else if(++trainer.stagnant >= 5){
-      trainer.activeMutation = clamp(trainer.activeMutation + 6, 5, 70);
-      trainer.stagnant = 0;
+  function finishGeneration(m){
+    const won = m.stats.points.left, lost = m.stats.points.right;
+    // Clear wins only: the needed margin grows with the number of decided rallies, so a copy
+    // that won by luck rarely takes over (about a 1-in-15 chance for an equal copy).
+    const decided = won + lost;
+    const beatChampion = decided > 0 && won - lost >= Math.max(ACCEPT_MARGIN, 1.5 * Math.sqrt(decided));
+    // A copy that beat the champion must also hold its own against the first brain and the
+    // last few champions – otherwise self-play just learns to exploit its parent.
+    const accept = beatChampion && holdsUp(trainer.challenger);
+    if(accept){
+      trainer.champion = trainer.challenger;
+      trainer.championGen = trainer.generation;
+      trainer.accepted++;
+      trainer.archive.push({gen: trainer.generation, g: trainer.champion});
+      if(trainer.archive.length > 50) trainer.archive.shift();
+      brainLayoutCache = null;
     }
-    trainer.bestEver = Math.max(trainer.bestEver, best.fitness);
-
-    trainer.champion = best.clone();
-    trainer.championGen = trainer.generation;
-
-    // Curriculum: beat the coach clearly twice in a row and it gets better.
-    if(entry.win >= LEVEL_UP_WIN && entry.decided >= 12){
-      if(++trainer.levelStreak >= 1 && trainer.coachLevel < COACH_MAX){
-        trainer.coachLevel++;
-        trainer.levelStreak = 0;
-        trainer.bestEver = -Infinity;      // fitness against a stronger coach is not comparable
-        entry.levelUp = true;
-      }
-    } else {
-      trainer.levelStreak = 0;
+    trainer.recent.push(accept ? 1 : 0);
+    if(trainer.recent.length > 20) trainer.recent.shift();
+    // Step size: when copies keep winning, take finer steps; when none has won for a while,
+    // try bolder ones so the agent does not get stuck.
+    if(trainer.recent.length >= 10){
+      const rate = trainer.recent.reduce((a, b)=> a + b, 0) / trainer.recent.length;
+      if(rate > 0.25) trainer.activeMutation *= 0.96;
+      else if(rate === 0) trainer.activeMutation *= 1.03;
+      trainer.activeMutation = clamp(trainer.activeMutation, 4, 30);
     }
-
-    trainer.pop.evolve(Object.assign({}, config, {mutationRate: trainer.activeMutation}));
+    trainer.history.push({gen: trainer.generation, won, lost, accept});
+    if(trainer.history.length > 500) trainer.history.shift();
+    if(trainer.generation % CHECK_EVERY === 0){
+      const rate = trainer.recent.reduce((a, b)=> a + b, 0) / Math.max(1, trainer.recent.length);
+      trainer.checks.push({gen: trainer.generation, win: checkVsFirst(), rate});
+      drawChart();
+    }
     trainer.generation++;
     trainer.genTimes.push(performance.now());
-    if(trainer.genTimes.length > 8) trainer.genTimes.shift();
-    brainLayoutCache = null;
-    drawChart();
+    if(trainer.genTimes.length > 30) trainer.genTimes.shift();
     startGeneration();
   }
 
@@ -1913,12 +1809,7 @@
       const m = trainer.match;
       m.step(SIM_DT);
       if(m.done){
-        const g = trainer.pop.genomes[trainer.index];
-        g.fitness = m.fitness;
-        g.stats = {won: m.stats.points.left, lost: m.stats.points.right, rallies: m.stats.serves, crossings: m.stats.crossings, passes: m.stats.passes};
-        trainer.index++;
-        if(trainer.index >= trainer.pop.genomes.length) finishGeneration();
-        else startGenome();
+        finishGeneration(m);
         if(viewMode === 'live') return;   // let the new match render from its first frame
       }
     }
@@ -2410,8 +2301,8 @@
   function drawHud(m){
     ctx.textBaseline = 'middle';
     const title = viewMode === 'turbo'
-      ? (m.brainGen ? `Blue: champion gen ${m.brainGen}` : 'Blue: untrained brain')
-      : `Live · genome ${trainer.index + 1} / ${trainer.pop.genomes.length}`;
+      ? `Champion from gen ${m.brainGen} vs itself`
+      : `Generation ${trainer.generation}: new (blue) vs champion`;
     ctx.fillStyle = 'rgba(6,10,28,0.8)';
     roundRect(40, 44, 270, 58, 10); ctx.fill();
     ctx.textAlign = 'left';
@@ -2419,8 +2310,8 @@
     ctx.fillText(title, 54, 64);
     ctx.fillStyle = '#9aa6c8'; ctx.font = '500 12px Inter, system-ui, sans-serif';
     const sub = viewMode === 'turbo'
-      ? `Orange: coach level ${m.coachLevel || trainer.coachLevel} · training gen ${trainer.generation}`
-      : `Fitness ${m.fitness.toFixed(1)} · serve ${Math.min(m.serveIndex + 1, SERVES_PER_GENOME)}/${SERVES_PER_GENOME}`;
+      ? `Training gen ${trainer.generation} · ${trainer.accepted} challengers have won`
+      : `Rally ${Math.min(m.serveIndex + 1, m.serves.length)}/${m.serves.length} · the copy must win clearly to take over`;
     ctx.fillText(sub, 54, 86);
     drawScoreboard(m);
     if(m.matchOver){
@@ -2541,18 +2432,19 @@
     const {w, h} = fitCanvas(chartCanvas, chartCtx);
     const g = chartCtx;
     g.clearRect(0, 0, w, h);
-    const data = trainer.history;
+    const data = trainer.checks;
     const note = Q('fitnessChartNote');
-    if(!data.length){
+    if(data.length < 2){
       g.fillStyle = '#9aa6c8'; g.font = '13px Inter, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText('Training will populate this chart', w / 2, h / 2);
-      note.textContent = 'Awaiting first generation';
+      g.fillText(`First check after generation ${CHECK_EVERY}`, w / 2, h / 2);
+      note.textContent = 'Awaiting first check';
       return;
     }
     const last = data[data.length - 1];
-    note.textContent = `Gen ${data.length}: champion won ${Math.round(last.win * 100)}% vs coach level ${last.level}`;
-    const padL = 40, padR = 10, padT = 14, padB = 22;
-    const X = (i)=> padL + (data.length === 1 ? (w - padL - padR) / 2 : i / (data.length - 1) * (w - padL - padR));
+    note.textContent = `Gen ${last.gen}: champion wins ${Math.round(last.win * 100)}% vs the first brain`;
+    const padL = 40, padR = 10, padT = 10, padB = 22;
+    const maxGen = Math.max(1, last.gen);
+    const X = (gen)=> padL + gen / maxGen * (w - padL - padR);
     const Y = (v)=> padT + (1 - v) * (h - padT - padB);
     g.font = '11px Inter, system-ui, sans-serif'; g.fillStyle = '#9aa6c8'; g.textAlign = 'right'; g.textBaseline = 'middle';
     g.strokeStyle = 'rgba(148,163,209,0.14)'; g.lineWidth = 1;
@@ -2561,26 +2453,18 @@
       g.beginPath(); g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke();
       g.fillText(`${Math.round(v * 100)}%`, padL - 6, y);
     }
+    // 50% = as good as the first brain
+    g.setLineDash([4, 4]); g.strokeStyle = 'rgba(255,207,107,0.5)';
+    g.beginPath(); g.moveTo(padL, Y(0.5)); g.lineTo(w - padR, Y(0.5)); g.stroke(); g.setLineDash([]);
     g.textAlign = 'center'; g.textBaseline = 'top';
-    const stepLbl = Math.max(1, Math.ceil(data.length / 8));
-    for(let i = 0; i < data.length; i += stepLbl) g.fillText(String(i + 1), X(i), h - padB + 6);
-    // coach level-ups
-    g.setLineDash([3, 4]); g.strokeStyle = 'rgba(255,207,107,0.6)'; g.fillStyle = '#ffcf6b'; g.textBaseline = 'top';
-    data.forEach((d, i)=>{
-      if(!d.levelUp) return;
-      const x = X(i);
-      g.beginPath(); g.moveTo(x, padT); g.lineTo(x, h - padB); g.stroke();
-      g.fillText(`L${d.level + 1}`, x, 0);
-    });
-    g.setLineDash([]);
+    for(let k = 0; k <= 4; k++){ const gen = Math.round(maxGen * k / 4); g.fillText(String(gen), X(gen), h - padB + 6); }
     const line = (key, col, width)=>{
       g.strokeStyle = col; g.lineWidth = width; g.lineJoin = 'round';
       g.beginPath();
-      data.forEach((d, i)=> i ? g.lineTo(X(i), Y(d[key])) : g.moveTo(X(i), Y(d[key])));
+      data.forEach((d, i)=> i ? g.lineTo(X(d.gen), Y(d[key])) : g.moveTo(X(d.gen), Y(d[key])));
       g.stroke();
-      if(data.length === 1){ g.fillStyle = col; g.beginPath(); g.arc(X(0), Y(data[0][key]), 3, 0, TAU); g.fill(); }
     };
-    line('avgWin', '#199e70', 1.8);
+    line('rate', '#199e70', 1.6);
     line('win', '#3987e5', 2.4);
   }
 
@@ -2663,14 +2547,15 @@
     const now = performance.now();
     if(!force && now - lastStatsAt < 250) return;
     lastStatsAt = now;
-    const pop = trainer.pop;
     setText('stat-generation', String(trainer.generation));
-    setText('stat-genome', `${trainer.index + 1} / ${pop.genomes.length}`);
-    setText('stat-best', Number.isFinite(trainer.bestEver) ? trainer.bestEver.toFixed(1) : '–');
-    const last = trainer.history[trainer.history.length - 1];
-    setText('stat-champ', last ? `${Math.round(last.win * 100)}%` : '–');
-    setText('stat-level', `${trainer.coachLevel} / ${COACH_MAX}`);
-    setText('stat-species', String(Math.max(1, pop.species.length)));
+    const tm = trainer.match;
+    setText('stat-match', tm ? `${tm.stats.points.left} – ${tm.stats.points.right}` : '–');
+    setText('stat-champgen', String(trainer.championGen));
+    const rate = trainer.recent.length ? trainer.recent.reduce((a, b)=> a + b, 0) / trainer.recent.length : 0;
+    setText('stat-accepted', `${trainer.accepted} (${Math.round(rate * 100)}%)`);
+    const lastCheck = trainer.checks[trainer.checks.length - 1];
+    setText('stat-first', lastCheck ? `${Math.round(lastCheck.win * 100)}%` : '–');
+    setText('stat-rallies', String(Math.round(config.ralliesPerGen)));
     setText('stat-mutation', `${trainer.activeMutation.toFixed(1)}%`);
     const times = trainer.genTimes;
     if(times.length >= 2){
@@ -2736,10 +2621,9 @@
   //  Controls
   // =====================================================================
   const SLIDERS = [
-    ['slPopulation', 'lbPopulation', 'populationSize', (v)=> `${v} genomes`],
+    ['slRallies', 'lbRallies', 'ralliesPerGen', (v)=> `${v} rallies`],
     ['slHidden', 'lbHidden', 'initialHidden', (v)=> `${v} node${v === 1 ? '' : 's'}`],
     ['slMutRate', 'lbMutRate', 'mutationRate', (v)=> `${v}%`],
-    ['slElite', 'lbElite', 'elitism', (v)=> `${Math.round(v)}%`, 0.01],
     ['slAddConn', 'lbAddConn', 'addConnectionRate', (v)=> `${v}%`],
     ['slAddNode', 'lbAddNode', 'addNodeRate', (v)=> `${v}%`],
     ['slPlayersPerTeam', 'lbPlayersPerTeam', 'playersPerTeam', (v)=> `${v} / side`],
@@ -2768,12 +2652,11 @@
     updateDerived();
     // Team size and ball count change the court: rebuild matches (training brains are untouched).
     if(key === 'playersPerTeam'){
-      trainer.serves = newServeSet();
-      startGenome();
+      startGeneration();
       resetShowcase();
     } else if(key === 'playerScale' || key === 'ballRadius'){
       resetShowcase();
-      startGenome();
+      startGeneration();
     }
   }
 
@@ -2809,8 +2692,8 @@
     Q('viewTurbo').classList.toggle('on', mode === 'turbo');
     Q('viewLive').classList.toggle('on', mode === 'live');
     Q('viewHint').textContent = mode === 'turbo'
-      ? 'Training runs in the background; the field shows a full match: champion (blue) vs coach (orange).'
-      : 'Watching each genome play its 12 training rallies against the coach.';
+      ? 'Training runs in the background; the field shows a full match of the champion against itself.'
+      : 'Watching every generation: one match, a mutated copy (blue) against the champion (orange).';
     if(trainer.match) trainer.match.display = mode === 'live';
     acc = 0;
   }
@@ -2856,7 +2739,7 @@
   });
 
   // ---------- Save / load ----------
-  const SAVE_VERSION = 7;
+  const SAVE_VERSION = 8;
   function serializeGenome(g){
     return {
       nodes: Array.from(g.nodes.values()).map((n)=> [n.id, n.type, n.layer]),
@@ -2877,18 +2760,19 @@
       version: SAVE_VERSION,
       savedAt: new Date().toISOString(),
       generation: trainer.generation,
-      bestEver: trainer.bestEver,
       championGen: trainer.championGen,
+      accepted: trainer.accepted,
+      recent: trainer.recent,
+      history: trainer.history.slice(-200),
+      checks: trainer.checks,
       activeMutation: trainer.activeMutation,
       config: Object.assign({}, config),
-      history: trainer.history,
-      population: {
+      innovation: {
         nextInnov: pop.nextInnov, innov: Array.from(pop.innov.entries()),
-        split: Array.from(pop.split.entries()), nextNodeId: pop.nextNodeId, threshold: pop.threshold,
-        genomes: pop.genomes.map(serializeGenome)
+        split: Array.from(pop.split.entries()), nextNodeId: pop.nextNodeId
       },
-      champion: trainer.champion ? serializeGenome(trainer.champion) : null,
-      coachLevel: trainer.coachLevel
+      champion: serializeGenome(trainer.champion),
+      first: serializeGenome(trainer.first)
     };
     try{
       const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
@@ -2906,7 +2790,7 @@
   function loadProgress(raw){
     let data;
     try{ data = JSON.parse(raw); } catch(err){ alert('That file is not valid JSON.'); return; }
-    if(!data || !data.population || !data.config){ alert('Invalid save data format.'); return; }
+    if(!data || !data.champion || !data.config){ alert('Invalid save data format.'); return; }
     if(data.version !== SAVE_VERSION){
       alert('This save was made with an older version of the lab, whose brains had a different layout. It cannot be loaded – start a new training run instead.');
       return;
@@ -2916,20 +2800,20 @@
       syncControls();
       updateDerived();
       const pop = new Population(0, 0);
-      const p = data.population;
+      const p = data.innovation;
       pop.nextInnov = p.nextInnov; pop.innov = new Map(p.innov); pop.split = new Map(p.split);
-      pop.nextNodeId = p.nextNodeId; pop.threshold = p.threshold || 1;
-      pop.genomes = p.genomes.map((gd)=> deserializeGenome(pop, gd));
+      pop.nextNodeId = p.nextNodeId;
       trainer.pop = pop;
+      trainer.champion = deserializeGenome(pop, data.champion);
+      trainer.first = deserializeGenome(pop, data.first);
+      pop.genomes = [trainer.champion];
       trainer.generation = data.generation || 1;
-      trainer.bestEver = Number.isFinite(data.bestEver) ? data.bestEver : -Infinity;
+      trainer.championGen = data.championGen || 1;
+      trainer.accepted = data.accepted || 0;
+      trainer.recent = Array.isArray(data.recent) ? data.recent : [];
       trainer.history = Array.isArray(data.history) ? data.history : [];
-      trainer.champion = data.champion ? deserializeGenome(pop, data.champion) : null;
-      trainer.coachLevel = data.coachLevel || 1;
-      trainer.levelStreak = 0;
-      trainer.championGen = data.championGen || 0;
+      trainer.checks = Array.isArray(data.checks) ? data.checks : [{gen: 0, win: 0.5, rate: 0}];
       trainer.activeMutation = data.activeMutation || config.mutationRate;
-      trainer.stagnant = 0;
       trainer.genTimes = [performance.now()];
       brainLayoutCache = null;
       startGeneration();
@@ -2965,7 +2849,7 @@
   } catch(err){ /* stay in 2D */ }
 
   // Exposed for automated tests only.
-  window.__volley = {trainer, config, trainSteps, Match, Coach, makeServe, mulberry32, setDim, get view3d(){ return view3d; }};
+  window.__volley = {trainer, config, trainSteps, Match, makeServe, mulberry32, checkVsFirst, setDim, get view3d(){ return view3d; }};
   </script>
 </body>
 </html>
