@@ -130,11 +130,16 @@ node <dataviz-skill>/scripts/validate_palette.js "#3987e5,#d95926,#199e70" \
   volleyball decisions only (spike or not, aim, side, power, pass, flip); running
   to the ball or back to a home spot is code, and so is the timing of a spike
   jump. Say so when describing it.
-- Training is against a coded **coach** (orange) with levels 1-8. Fitness is
-  points won/lost; rallies cut off at 30 s count for neither side. The champion
-  is re-checked on 24 fresh rallies each generation and the coach levels up at
-  70% of at least 12 decided rallies. Measure learning by playing the same serves
-  with generation-1 brains and the champion (start brains ~50% vs level 1).
+- Training is self-play by one agent, one match per generation (a (1+1)
+  evolution strategy, no population): a mutated copy (blue) plays the champion
+  (orange). It takes over only if it wins by max(3, 1.5*sqrt(decided)) AND does
+  not lose to the first brain or the last few champions - without that check
+  self-play cycled (new champions beat their parent but lost to older ones).
+  Rallies cut off at 30 s count for neither side. Measure progress head to head
+  against the first brain and older champions on the same serves.
+- Reception is imperfect on purpose: the faster a ball arrives, the less exact
+  the next touch. Without it two near-identical brains never lost a rally and
+  self-play had no signal at all.
 - Volleyball rules are code: serve from behind the end line, max three touches,
   no double contact, antennas, out on lines/walls/ceiling, rally scoring, sets
   to 25 by 2, side-out rotation. The brain decides pass-or-attack per touch;
